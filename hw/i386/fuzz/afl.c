@@ -15,6 +15,8 @@ void afl_check_intercept(CPUX86State *env, int intno, int is_int,
    if(is_int || intno != EXCP0E_PAGE)
       return;
 
+   debug("%s: %d (0x%x) CR2 0x%x\n", __func__, intno, intno, env->cr[2]);
+
    /* keep some detail level for AFL board processing (async_panic) */
    cs->exception_index = EXCP_INTERCEPT + intno;
    env->error_code = error_code;
@@ -110,11 +112,11 @@ void afl_arch_ram_guard_setup(afl_t *afl)
       pg_set_entry(&hptb[m+i], PG_FULL, f+i);
 
    pg_set_entry(&hpgd[n], PG_FULL, page_nr(gptb));
-   debug("ramguard: (trace) idmap %d 4KB pg from frame 0x%x\n",
+   debug("ramguard: (trace) idmap %ld 4KB pg from frame 0x%x\n",
          afl->config.afl.trace_size/PAGE_SIZE, f);
 
    // enable paging
-   CPUX86State *env = &afl->cpu->env;
+   CPUX86State *env = &afl->arch.cpu->env;
    env->cr[0] |= CR0_PG_MASK;
    env->cr[4] |= CR4_PGE_MASK;
    cpu_x86_update_cr3(env, gpgd);
