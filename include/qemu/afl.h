@@ -69,7 +69,7 @@ typedef uint64_t u64;
 #define AFL_INJECT_TESTCASE      1
 //#define AFL_DUMMY_CASE           1
 
-#define AFL_FAST_RESTORE         1
+//#define AFL_FAST_RESTORE         1
 #define AFL_CONTROL_EXECUTION    1
 //#define AFL_CONTROL_EXEC_ZERO    1
 #define AFL_CONTROL_PANIC        1
@@ -115,7 +115,6 @@ typedef uint64_t u64;
 #include "hw/i386/apic.h"
 #include "hw/acpi/acpi.h"
 #include "kvm_i386.h"
-#include "hw/i2c/smbus.h"
 #include "hw/xen/xen.h"
 
 #define PG_P            (1)
