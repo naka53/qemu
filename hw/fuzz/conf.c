@@ -66,7 +66,7 @@ static QDict *parse_json(const char *filename)
       QObject *obj = qdict_get(dict, key);                      \
                                                                 \
       if (obj == NULL) {                                        \
-         printf("afl conf qdict get failed\n");                 \
+         printf("afl conf qdict get failed '%s' \n", key);      \
          exit(-1);                                              \
       }                                                         \
                                                                 \
