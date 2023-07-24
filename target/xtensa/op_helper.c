@@ -32,19 +32,18 @@
 #include "qemu/host-utils.h"
 #include "exec/exec-all.h"
 #include "exec/cpu_ldst.h"
-#include "exec/address-spaces.h"
 #include "qemu/timer.h"
 
 #ifndef CONFIG_USER_ONLY
 
 void HELPER(update_ccount)(CPUXtensaState *env)
 {
+    XtensaCPU *cpu = XTENSA_CPU(env_cpu(env));
     uint64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
 
     env->ccount_time = now;
     env->sregs[CCOUNT] = env->ccount_base +
-        (uint32_t)((now - env->time_base) *
-                   env->config->clock_freq_khz / 1000000);
+        (uint32_t)clock_ns_to_ticks(cpu->clock, now - env->time_base);
 }
 
 void HELPER(wsr_ccount)(CPUXtensaState *env, uint32_t v)
@@ -60,14 +59,15 @@ void HELPER(wsr_ccount)(CPUXtensaState *env, uint32_t v)
 
 void HELPER(update_ccompare)(CPUXtensaState *env, uint32_t i)
 {
+    XtensaCPU *cpu = XTENSA_CPU(env_cpu(env));
     uint64_t dcc;
 
-    atomic_and(&env->sregs[INTSET],
+    qatomic_and(&env->sregs[INTSET],
                ~(1u << env->config->timerint[i]));
     HELPER(update_ccount)(env);
     dcc = (uint64_t)(env->sregs[CCOMPARE + i] - env->sregs[CCOUNT] - 1) + 1;
     timer_mod(env->ccompare[i].timer,
-              env->ccount_time + (dcc * 1000000) / env->config->clock_freq_khz);
+              env->ccount_time + clock_ticks_to_ns(cpu->clock, dcc));
     env->yield_needed = 1;
 }
 
@@ -117,6 +117,48 @@ void HELPER(check_atomctl)(CPUXtensaState *env, uint32_t pc, uint32_t vaddr)
         if ((atomctl & 0x3) == 0) {
             HELPER(exception_cause_vaddr)(env, pc,
                     LOAD_STORE_ERROR_CAUSE, vaddr);
+        }
+        break;
+
+    case PAGE_CACHE_ISOLATE:
+        HELPER(exception_cause_vaddr)(env, pc,
+                LOAD_STORE_ERROR_CAUSE, vaddr);
+        break;
+
+    default:
+        break;
+    }
+}
+
+void HELPER(check_exclusive)(CPUXtensaState *env, uint32_t pc, uint32_t vaddr,
+                             uint32_t is_write)
+{
+    uint32_t paddr, page_size, access;
+    uint32_t atomctl = env->sregs[ATOMCTL];
+    int rc = xtensa_get_physical_addr(env, true, vaddr, is_write,
+                                      xtensa_get_cring(env), &paddr,
+                                      &page_size, &access);
+
+    if (rc) {
+        HELPER(exception_cause_vaddr)(env, pc, rc, vaddr);
+    }
+
+    /* When data cache is not configured use ATOMCTL bypass field. */
+    if (!xtensa_option_enabled(env->config, XTENSA_OPTION_DCACHE)) {
+        access = PAGE_CACHE_BYPASS;
+    }
+
+    switch (access & PAGE_CACHE_MASK) {
+    case PAGE_CACHE_WB:
+        atomctl >>= 2;
+        /* fall through */
+    case PAGE_CACHE_WT:
+        atomctl >>= 2;
+        /* fall through */
+    case PAGE_CACHE_BYPASS:
+        if ((atomctl & 0x3) == 0) {
+            HELPER(exception_cause_vaddr)(env, pc,
+                                          EXCLUSIVE_ERROR_CAUSE, vaddr);
         }
         break;
 

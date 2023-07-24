@@ -31,6 +31,7 @@
 
 #define ETH_ALEN 6
 #define ETH_HLEN 14
+#define ETH_ZLEN 60     /* Min. octets in frame without FCS */
 
 struct eth_header {
     uint8_t  h_dest[ETH_ALEN];   /* destination eth addr */
@@ -158,7 +159,7 @@ struct tcp_hdr {
     u_short     th_dport;   /* destination port */
     uint32_t    th_seq;     /* sequence number */
     uint32_t    th_ack;     /* acknowledgment number */
-#ifdef HOST_WORDS_BIGENDIAN
+#if HOST_BIG_ENDIAN
     u_char  th_off : 4,     /* data offset */
         th_x2:4;            /* (unused) */
 #else
@@ -186,6 +187,7 @@ struct tcp_hdr {
 
 #define ip6_nxt      ip6_ctlun.ip6_un1.ip6_un1_nxt
 #define ip6_ecn_acc  ip6_ctlun.ip6_un3.ip6_un3_ecn
+#define ip6_plen     ip6_ctlun.ip6_un1.ip6_un1_plen
 
 #define PKT_GET_ETH_HDR(p)        \
     ((struct eth_header *)(p))
@@ -379,29 +381,30 @@ typedef struct eth_ip4_hdr_info_st {
     bool   fragment;
 } eth_ip4_hdr_info;
 
+typedef enum EthL4HdrProto {
+    ETH_L4_HDR_PROTO_INVALID,
+    ETH_L4_HDR_PROTO_TCP,
+    ETH_L4_HDR_PROTO_UDP
+} EthL4HdrProto;
+
 typedef struct eth_l4_hdr_info_st {
     union {
         struct tcp_header tcp;
         struct udp_header udp;
     } hdr;
 
+    EthL4HdrProto proto;
     bool has_tcp_data;
 } eth_l4_hdr_info;
 
 void eth_get_protocols(const struct iovec *iov, int iovcnt,
-                       bool *isip4, bool *isip6,
-                       bool *isudp, bool *istcp,
+                       bool *hasip4, bool *hasip6,
                        size_t *l3hdr_off,
                        size_t *l4hdr_off,
                        size_t *l5hdr_off,
                        eth_ip6_hdr_info *ip6hdr_info,
                        eth_ip4_hdr_info *ip4hdr_info,
                        eth_l4_hdr_info  *l4hdr_info);
-
-void eth_setup_ip4_fragmentation(const void *l2hdr, size_t l2hdr_len,
-                                 void *l3hdr, size_t l3hdr_len,
-                                 size_t l3payload_len,
-                                 size_t frag_offset, bool more_frags);
 
 void
 eth_fix_ip4_checksum(void *l3hdr, size_t l3hdr_len);
@@ -420,5 +423,21 @@ eth_calc_ip6_pseudo_hdr_csum(struct ip6_header *iphdr,
 bool
 eth_parse_ipv6_hdr(const struct iovec *pkt, int pkt_frags,
                    size_t ip6hdr_off, eth_ip6_hdr_info *info);
+
+/**
+ * eth_pad_short_frame - pad a short frame to the minimum Ethernet frame length
+ *
+ * If the Ethernet frame size is shorter than 60 bytes, it will be padded to
+ * 60 bytes at the address @padded_pkt.
+ *
+ * @padded_pkt: buffer address to hold the padded frame
+ * @padded_buflen: pointer holding length of @padded_pkt. If the frame is
+ *                 padded, the length will be updated to the padded one.
+ * @pkt: address to hold the original Ethernet frame
+ * @pkt_size: size of the original Ethernet frame
+ * @return true if the frame is padded, otherwise false
+ */
+bool eth_pad_short_frame(uint8_t *padded_pkt, size_t *padded_buflen,
+                         const void *pkt, size_t pkt_size);
 
 #endif

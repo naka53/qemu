@@ -20,15 +20,19 @@
 
 #include "qemu/osdep.h"
 #include "qapi/error.h"
-#include "qemu-common.h"
 #include "hw/hw.h"
 #include "hw/block/flash.h"
 #include "hw/irq.h"
+#include "hw/qdev-properties.h"
+#include "hw/qdev-properties-system.h"
 #include "sysemu/block-backend.h"
 #include "exec/memory.h"
 #include "hw/sysbus.h"
+#include "migration/vmstate.h"
 #include "qemu/error-report.h"
 #include "qemu/log.h"
+#include "qemu/module.h"
+#include "qom/object.h"
 
 /* 11 for 2kB-page OneNAND ("2nd generation") and 10 for 1kB-page chips */
 #define PAGE_SHIFT	11
@@ -37,9 +41,9 @@
 #define BLOCK_SHIFT	(PAGE_SHIFT + 6)
 
 #define TYPE_ONE_NAND "onenand"
-#define ONE_NAND(obj) OBJECT_CHECK(OneNANDState, (obj), TYPE_ONE_NAND)
+OBJECT_DECLARE_SIMPLE_TYPE(OneNANDState, ONE_NAND)
 
-typedef struct OneNANDState {
+struct OneNANDState {
     SysBusDevice parent_obj;
 
     struct {
@@ -83,7 +87,7 @@ typedef struct OneNANDState {
     int secs_cur;
     int blocks;
     uint8_t *blockwp;
-} OneNANDState;
+};
 
 enum {
     ONEN_BUF_BLOCK = 0,
@@ -225,8 +229,8 @@ static void onenand_reset(OneNANDState *s, int cold)
         /* Lock the whole flash */
         memset(s->blockwp, ONEN_LOCK_LOCKED, s->blocks);
 
-        if (s->blk_cur && blk_pread(s->blk_cur, 0, s->boot[0],
-                                    8 << BDRV_SECTOR_BITS) < 0) {
+        if (s->blk_cur && blk_pread(s->blk_cur, 0, 8 << BDRV_SECTOR_BITS,
+                                    s->boot[0], 0) < 0) {
             hw_error("%s: Loading the BootRAM failed.\n", __func__);
         }
     }
@@ -245,8 +249,8 @@ static inline int onenand_load_main(OneNANDState *s, int sec, int secn,
     assert(UINT32_MAX >> BDRV_SECTOR_BITS > sec);
     assert(UINT32_MAX >> BDRV_SECTOR_BITS > secn);
     if (s->blk_cur) {
-        return blk_pread(s->blk_cur, sec << BDRV_SECTOR_BITS, dest,
-                         secn << BDRV_SECTOR_BITS) < 0;
+        return blk_pread(s->blk_cur, sec << BDRV_SECTOR_BITS,
+                         secn << BDRV_SECTOR_BITS, dest, 0) < 0;
     } else if (sec + secn > s->secs_cur) {
         return 1;
     }
@@ -270,7 +274,7 @@ static inline int onenand_prog_main(OneNANDState *s, int sec, int secn,
         uint8_t *dp = 0;
         if (s->blk_cur) {
             dp = g_malloc(size);
-            if (!dp || blk_pread(s->blk_cur, offset, dp, size) < 0) {
+            if (!dp || blk_pread(s->blk_cur, offset, size, dp, 0) < 0) {
                 result = 1;
             }
         } else {
@@ -286,7 +290,7 @@ static inline int onenand_prog_main(OneNANDState *s, int sec, int secn,
                 dp[i] &= sp[i];
             }
             if (s->blk_cur) {
-                result = blk_pwrite(s->blk_cur, offset, dp, size, 0) < 0;
+                result = blk_pwrite(s->blk_cur, offset, size, dp, 0) < 0;
             }
         }
         if (dp && s->blk_cur) {
@@ -304,7 +308,7 @@ static inline int onenand_load_spare(OneNANDState *s, int sec, int secn,
 
     if (s->blk_cur) {
         uint32_t offset = (s->secs_cur + (sec >> 5)) << BDRV_SECTOR_BITS;
-        if (blk_pread(s->blk_cur, offset, buf, BDRV_SECTOR_SIZE) < 0) {
+        if (blk_pread(s->blk_cur, offset, BDRV_SECTOR_SIZE, buf, 0) < 0) {
             return 1;
         }
         memcpy(dest, buf + ((sec & 31) << 4), secn << 4);
@@ -329,7 +333,7 @@ static inline int onenand_prog_spare(OneNANDState *s, int sec, int secn,
         if (s->blk_cur) {
             dp = g_malloc(512);
             if (!dp
-                || blk_pread(s->blk_cur, offset, dp, BDRV_SECTOR_SIZE) < 0) {
+                || blk_pread(s->blk_cur, offset, BDRV_SECTOR_SIZE, dp, 0) < 0) {
                 result = 1;
             } else {
                 dpp = dp + ((sec & 31) << 4);
@@ -347,8 +351,8 @@ static inline int onenand_prog_spare(OneNANDState *s, int sec, int secn,
                 dpp[i] &= sp[i];
             }
             if (s->blk_cur) {
-                result = blk_pwrite(s->blk_cur, offset, dp,
-                                    BDRV_SECTOR_SIZE, 0) < 0;
+                result = blk_pwrite(s->blk_cur, offset, BDRV_SECTOR_SIZE, dp,
+                                    0) < 0;
             }
         }
         g_free(dp);
@@ -366,17 +370,17 @@ static inline int onenand_erase(OneNANDState *s, int sec, int num)
     for (; num > 0; num--, sec++) {
         if (s->blk_cur) {
             int erasesec = s->secs_cur + (sec >> 5);
-            if (blk_pwrite(s->blk_cur, sec << BDRV_SECTOR_BITS, blankbuf,
-                           BDRV_SECTOR_SIZE, 0) < 0) {
+            if (blk_pwrite(s->blk_cur, sec << BDRV_SECTOR_BITS,
+                           BDRV_SECTOR_SIZE, blankbuf, 0) < 0) {
                 goto fail;
             }
-            if (blk_pread(s->blk_cur, erasesec << BDRV_SECTOR_BITS, tmpbuf,
-                          BDRV_SECTOR_SIZE) < 0) {
+            if (blk_pread(s->blk_cur, erasesec << BDRV_SECTOR_BITS,
+                          BDRV_SECTOR_SIZE, tmpbuf, 0) < 0) {
                 goto fail;
             }
             memcpy(tmpbuf + ((sec & 31) << 4), blankbuf, 1 << 4);
-            if (blk_pwrite(s->blk_cur, erasesec << BDRV_SECTOR_BITS, tmpbuf,
-                           BDRV_SECTOR_SIZE, 0) < 0) {
+            if (blk_pwrite(s->blk_cur, erasesec << BDRV_SECTOR_BITS,
+                           BDRV_SECTOR_SIZE, tmpbuf, 0) < 0) {
                 goto fail;
             }
         } else {
@@ -793,7 +797,7 @@ static void onenand_realize(DeviceState *dev, Error **errp)
         s->image = memset(g_malloc(size + (size >> 5)),
                           0xff, size + (size >> 5));
     } else {
-        if (blk_is_read_only(s->blk)) {
+        if (!blk_supports_write_perm(s->blk)) {
             error_setg(errp, "Can't use a read-only drive");
             return;
         }
@@ -820,7 +824,7 @@ static void onenand_realize(DeviceState *dev, Error **errp)
     onenand_mem_setup(s);
     sysbus_init_irq(sbd, &s->intr);
     sysbus_init_mmio(sbd, &s->container);
-    vmstate_register(dev,
+    vmstate_register(VMSTATE_IF(dev),
                      ((s->shift & 0x7f) << 24)
                      | ((s->id.man & 0xff) << 16)
                      | ((s->id.dev & 0xff) << 8)
@@ -843,7 +847,7 @@ static void onenand_class_init(ObjectClass *klass, void *data)
 
     dc->realize = onenand_realize;
     dc->reset = onenand_system_reset;
-    dc->props = onenand_properties;
+    device_class_set_props(dc, onenand_properties);
 }
 
 static const TypeInfo onenand_info = {

@@ -6,7 +6,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -23,12 +23,14 @@
 #include "tlscredspriv.h"
 #include "crypto/secret.h"
 #include "qapi/error.h"
+#include "qemu/module.h"
 #include "qom/object_interfaces.h"
 #include "trace.h"
 
 
 #ifdef CONFIG_GNUTLS
 
+#include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
 
 
@@ -142,7 +144,7 @@ qcrypto_tls_creds_check_cert_key_usage(QCryptoTLSCredsX509 *creds,
     if (status < 0) {
         if (status == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE) {
             usage = isCA ? GNUTLS_KEY_KEY_CERT_SIGN :
-                GNUTLS_KEY_DIGITAL_SIGNATURE|GNUTLS_KEY_KEY_ENCIPHERMENT;
+                GNUTLS_KEY_DIGITAL_SIGNATURE | GNUTLS_KEY_KEY_ENCIPHERMENT;
         } else {
             error_setg(errp,
                        "Unable to query certificate %s key usage: %s",
@@ -353,11 +355,9 @@ qcrypto_tls_creds_check_cert_pair(gnutls_x509_crt_t cert,
             reason = "The certificate has been revoked";
         }
 
-#ifndef GNUTLS_1_0_COMPAT
         if (status & GNUTLS_CERT_INSECURE_ALGORITHM) {
             reason = "The certificate uses an insecure algorithm";
         }
-#endif
 
         error_setg(errp,
                    "Our own certificate %s failed validation against %s: %s",
@@ -377,9 +377,9 @@ qcrypto_tls_creds_load_cert(QCryptoTLSCredsX509 *creds,
 {
     gnutls_datum_t data;
     gnutls_x509_crt_t cert = NULL;
-    char *buf = NULL;
+    g_autofree char *buf = NULL;
     gsize buflen;
-    GError *gerr;
+    GError *gerr = NULL;
     int ret = -1;
     int err;
 
@@ -419,7 +419,6 @@ qcrypto_tls_creds_load_cert(QCryptoTLSCredsX509 *creds,
         gnutls_x509_crt_deinit(cert);
         cert = NULL;
     }
-    g_free(buf);
     return cert;
 }
 
@@ -433,9 +432,8 @@ qcrypto_tls_creds_load_ca_cert_list(QCryptoTLSCredsX509 *creds,
                                     Error **errp)
 {
     gnutls_datum_t data;
-    char *buf = NULL;
+    g_autofree char *buf = NULL;
     gsize buflen;
-    int ret = -1;
     GError *gerr = NULL;
 
     *ncerts = 0;
@@ -445,7 +443,7 @@ qcrypto_tls_creds_load_ca_cert_list(QCryptoTLSCredsX509 *creds,
         error_setg(errp, "Cannot load CA cert list %s: %s",
                    certFile, gerr->message);
         g_error_free(gerr);
-        goto cleanup;
+        return -1;
     }
 
     data.data = (unsigned char *)buf;
@@ -456,15 +454,11 @@ qcrypto_tls_creds_load_ca_cert_list(QCryptoTLSCredsX509 *creds,
         error_setg(errp,
                    "Unable to import CA certificate list %s",
                    certFile);
-        goto cleanup;
+        return -1;
     }
     *ncerts = certMax;
 
-    ret = 0;
-
- cleanup:
-    g_free(buf);
-    return ret;
+    return 0;
 }
 
 
@@ -693,17 +687,11 @@ qcrypto_tls_creds_x509_unload(QCryptoTLSCredsX509 *creds G_GNUC_UNUSED)
 
 
 static void
-qcrypto_tls_creds_x509_prop_set_loaded(Object *obj,
-                                       bool value,
-                                       Error **errp)
+qcrypto_tls_creds_x509_complete(UserCreatable *uc, Error **errp)
 {
-    QCryptoTLSCredsX509 *creds = QCRYPTO_TLS_CREDS_X509(obj);
+    QCryptoTLSCredsX509 *creds = QCRYPTO_TLS_CREDS_X509(uc);
 
-    if (value) {
-        qcrypto_tls_creds_x509_load(creds, errp);
-    } else {
-        qcrypto_tls_creds_x509_unload(creds);
-    }
+    qcrypto_tls_creds_x509_load(creds, errp);
 }
 
 
@@ -776,11 +764,49 @@ qcrypto_tls_creds_x509_prop_get_sanity(Object *obj,
 }
 
 
-static void
-qcrypto_tls_creds_x509_complete(UserCreatable *uc, Error **errp)
+#ifdef CONFIG_GNUTLS
+
+
+static bool
+qcrypto_tls_creds_x509_reload(QCryptoTLSCreds *creds, Error **errp)
 {
-    object_property_set_bool(OBJECT(uc), true, "loaded", errp);
+    QCryptoTLSCredsX509 *x509_creds = QCRYPTO_TLS_CREDS_X509(creds);
+    Error *local_err = NULL;
+    gnutls_certificate_credentials_t creds_data = x509_creds->data;
+    gnutls_dh_params_t creds_dh_params = x509_creds->parent_obj.dh_params;
+
+    x509_creds->data = NULL;
+    x509_creds->parent_obj.dh_params = NULL;
+    qcrypto_tls_creds_x509_load(x509_creds, &local_err);
+    if (local_err) {
+        qcrypto_tls_creds_x509_unload(x509_creds);
+        x509_creds->data = creds_data;
+        x509_creds->parent_obj.dh_params = creds_dh_params;
+        error_propagate(errp, local_err);
+        return false;
+    }
+
+    if (creds_data) {
+        gnutls_certificate_free_credentials(creds_data);
+    }
+    if (creds_dh_params) {
+        gnutls_dh_params_deinit(creds_dh_params);
+    }
+    return true;
 }
+
+
+#else /* ! CONFIG_GNUTLS */
+
+
+static bool
+qcrypto_tls_creds_x509_reload(QCryptoTLSCreds *creds, Error **errp)
+{
+    return false;
+}
+
+
+#endif /* ! CONFIG_GNUTLS */
 
 
 static void
@@ -806,21 +832,21 @@ static void
 qcrypto_tls_creds_x509_class_init(ObjectClass *oc, void *data)
 {
     UserCreatableClass *ucc = USER_CREATABLE_CLASS(oc);
+    QCryptoTLSCredsClass *ctcc = QCRYPTO_TLS_CREDS_CLASS(oc);
+
+    ctcc->reload = qcrypto_tls_creds_x509_reload;
 
     ucc->complete = qcrypto_tls_creds_x509_complete;
 
     object_class_property_add_bool(oc, "loaded",
                                    qcrypto_tls_creds_x509_prop_get_loaded,
-                                   qcrypto_tls_creds_x509_prop_set_loaded,
                                    NULL);
     object_class_property_add_bool(oc, "sanity-check",
                                    qcrypto_tls_creds_x509_prop_get_sanity,
-                                   qcrypto_tls_creds_x509_prop_set_sanity,
-                                   NULL);
+                                   qcrypto_tls_creds_x509_prop_set_sanity);
     object_class_property_add_str(oc, "passwordid",
                                   qcrypto_tls_creds_x509_prop_get_passwordid,
-                                  qcrypto_tls_creds_x509_prop_set_passwordid,
-                                  NULL);
+                                  qcrypto_tls_creds_x509_prop_set_passwordid);
 }
 
 

@@ -8,20 +8,26 @@
  *
  */
 
+/*
+ * Not so fast! You might want to read the 9p developer docs first:
+ * https://wiki.qemu.org/Documentation/9p
+ */
+
 #include "qemu/osdep.h"
 
-#include "hw/hw.h"
 #include "hw/9pfs/9p.h"
 #include "hw/xen/xen-legacy-backend.h"
 #include "hw/9pfs/xen-9pfs.h"
 #include "qapi/error.h"
 #include "qemu/config-file.h"
+#include "qemu/main-loop.h"
 #include "qemu/option.h"
+#include "qemu/iov.h"
 #include "fsdev/qemu-fsdev.h"
 
 #define VERSIONS "1"
 #define MAX_RINGS 8
-#define MAX_RING_ORDER 8
+#define MAX_RING_ORDER 9
 
 typedef struct Xen9pfsRing {
     struct Xen9pfsDev *priv;
@@ -37,6 +43,7 @@ typedef struct Xen9pfsRing {
 
     struct iovec *sg;
     QEMUBH *bh;
+    Coroutine *co;
 
     /* local copies, so that we can read/write PDU data directly from
      * the ring */
@@ -137,7 +144,8 @@ static ssize_t xen_9pfs_pdu_vmarshal(V9fsPDU *pdu,
     ret = v9fs_iov_vmarshal(in_sg, num, offset, 0, fmt, ap);
     if (ret < 0) {
         xen_pv_printf(&xen_9pfs->xendev, 0,
-                      "Failed to encode VirtFS request type %d\n", pdu->id + 1);
+                      "Failed to encode VirtFS reply type %d\n",
+                      pdu->id + 1);
         xen_be_set_state(&xen_9pfs->xendev, XenbusStateClosing);
         xen_9pfs_disconnect(&xen_9pfs->xendev);
     }
@@ -197,16 +205,20 @@ static void xen_9pfs_init_in_iov_from_pdu(V9fsPDU *pdu,
     g_free(ring->sg);
 
     ring->sg = g_new0(struct iovec, 2);
-    xen_9pfs_in_sg(ring, ring->sg, &num, pdu->idx, size);
+    ring->co = qemu_coroutine_self();
+    /* make sure other threads see ring->co changes before continuing */
+    smp_wmb();
 
+again:
+    xen_9pfs_in_sg(ring, ring->sg, &num, pdu->idx, size);
     buf_size = iov_size(ring->sg, num);
     if (buf_size  < size) {
-        xen_pv_printf(&xen_9pfs->xendev, 0, "Xen 9pfs request type %d"
-                "needs %zu bytes, buffer has %zu\n", pdu->id, size,
-                buf_size);
-        xen_be_set_state(&xen_9pfs->xendev, XenbusStateClosing);
-        xen_9pfs_disconnect(&xen_9pfs->xendev);
+        qemu_coroutine_yield();
+        goto again;
     }
+    ring->co = NULL;
+    /* make sure other threads see ring->co changes before continuing */
+    smp_wmb();
 
     *piov = ring->sg;
     *pniov = num;
@@ -230,7 +242,7 @@ static void xen_9pfs_push_and_notify(V9fsPDU *pdu)
     xen_wmb();
 
     ring->inprogress = false;
-    xenevtchn_notify(ring->evtchndev, ring->local_port);
+    qemu_xen_evtchn_notify(ring->evtchndev, ring->local_port);
 
     qemu_bh_schedule(ring->bh);
 }
@@ -291,6 +303,20 @@ static int xen_9pfs_receive(Xen9pfsRing *ring)
 static void xen_9pfs_bh(void *opaque)
 {
     Xen9pfsRing *ring = opaque;
+    bool wait;
+
+again:
+    wait = ring->co != NULL && qemu_coroutine_entered(ring->co);
+    /* paired with the smb_wmb barriers in xen_9pfs_init_in_iov_from_pdu */
+    smp_rmb();
+    if (wait) {
+        cpu_relax();
+        goto again;
+    }
+
+    if (ring->co != NULL) {
+        qemu_coroutine_enter_if_inactive(ring->co);
+    }
     xen_9pfs_receive(ring);
 }
 
@@ -299,8 +325,8 @@ static void xen_9pfs_evtchn_event(void *opaque)
     Xen9pfsRing *ring = opaque;
     evtchn_port_t port;
 
-    port = xenevtchn_pending(ring->evtchndev);
-    xenevtchn_unmask(ring->evtchndev, port);
+    port = qemu_xen_evtchn_pending(ring->evtchndev);
+    qemu_xen_evtchn_unmask(ring->evtchndev, port);
 
     qemu_bh_schedule(ring->bh);
 }
@@ -312,10 +338,10 @@ static void xen_9pfs_disconnect(struct XenLegacyDevice *xendev)
 
     for (i = 0; i < xen_9pdev->num_rings; i++) {
         if (xen_9pdev->rings[i].evtchndev != NULL) {
-            qemu_set_fd_handler(xenevtchn_fd(xen_9pdev->rings[i].evtchndev),
-                    NULL, NULL, NULL);
-            xenevtchn_unbind(xen_9pdev->rings[i].evtchndev,
-                             xen_9pdev->rings[i].local_port);
+            qemu_set_fd_handler(qemu_xen_evtchn_fd(xen_9pdev->rings[i].evtchndev),
+                                NULL, NULL, NULL);
+            qemu_xen_evtchn_unbind(xen_9pdev->rings[i].evtchndev,
+                                   xen_9pdev->rings[i].local_port);
             xen_9pdev->rings[i].evtchndev = NULL;
         }
     }
@@ -334,12 +360,13 @@ static int xen_9pfs_free(struct XenLegacyDevice *xendev)
         if (xen_9pdev->rings[i].data != NULL) {
             xen_be_unmap_grant_refs(&xen_9pdev->xendev,
                                     xen_9pdev->rings[i].data,
+                                    xen_9pdev->rings[i].intf->ref,
                                     (1 << xen_9pdev->rings[i].ring_order));
         }
         if (xen_9pdev->rings[i].intf != NULL) {
-            xen_be_unmap_grant_refs(&xen_9pdev->xendev,
-                                    xen_9pdev->rings[i].intf,
-                                    1);
+            xen_be_unmap_grant_ref(&xen_9pdev->xendev,
+                                   xen_9pdev->rings[i].intf,
+                                   xen_9pdev->rings[i].ref);
         }
         if (xen_9pdev->rings[i].bh != NULL) {
             qemu_bh_delete(xen_9pdev->rings[i].bh);
@@ -422,12 +449,12 @@ static int xen_9pfs_connect(struct XenLegacyDevice *xendev)
         xen_9pdev->rings[i].inprogress = false;
 
 
-        xen_9pdev->rings[i].evtchndev = xenevtchn_open(NULL, 0);
+        xen_9pdev->rings[i].evtchndev = qemu_xen_evtchn_open();
         if (xen_9pdev->rings[i].evtchndev == NULL) {
             goto out;
         }
-        qemu_set_cloexec(xenevtchn_fd(xen_9pdev->rings[i].evtchndev));
-        xen_9pdev->rings[i].local_port = xenevtchn_bind_interdomain
+        qemu_set_cloexec(qemu_xen_evtchn_fd(xen_9pdev->rings[i].evtchndev));
+        xen_9pdev->rings[i].local_port = qemu_xen_evtchn_bind_interdomain
                                             (xen_9pdev->rings[i].evtchndev,
                                              xendev->dom,
                                              xen_9pdev->rings[i].evtchn);
@@ -438,8 +465,8 @@ static int xen_9pfs_connect(struct XenLegacyDevice *xendev)
             goto out;
         }
         xen_pv_printf(xendev, 2, "bind evtchn port %d\n", xendev->local_port);
-        qemu_set_fd_handler(xenevtchn_fd(xen_9pdev->rings[i].evtchndev),
-                xen_9pfs_evtchn_event, NULL, &xen_9pdev->rings[i]);
+        qemu_set_fd_handler(qemu_xen_evtchn_fd(xen_9pdev->rings[i].evtchndev),
+                            xen_9pfs_evtchn_event, NULL, &xen_9pdev->rings[i]);
     }
 
     xen_9pdev->security_model = xenstore_read_be_str(xendev, "security_model");

@@ -19,7 +19,7 @@ _start:
 	larl %r2, __bss_start
 	larl %r3, _end
 	slgr %r3, %r2		/* get sizeof bss */
-	ltgr	%r3,%r3 	/* bss emtpy? */
+	ltgr	%r3,%r3 	/* bss empty? */
 	jz	done
 	aghi	%r3,-1
 	srlg	%r4,%r3,8	/* how many 256 byte chunks? */
@@ -34,7 +34,10 @@ remainder:
 	larl	%r2,memsetxc
 	ex	%r3,0(%r2)
 done:
-	j      main		/* And call C */
+        /* set up a pgm exception disabled wait psw */
+        larl	%r2, disabled_wait_psw
+        mvc	0x01d0(16), 0(%r2)
+        j      main		/* And call C */
 
 memsetxc:
 	xc	0(1,%r1),0(%r1)
@@ -47,8 +50,9 @@ memsetxc:
  */
 	.globl disabled_wait
 disabled_wait:
-        larl %r1,disabled_wait_psw
-        lpswe   0(%r1)
+	larl	%r1,disabled_wait_psw
+	lpswe	0(%r1)
+1:	j	1b
 
 
 /*

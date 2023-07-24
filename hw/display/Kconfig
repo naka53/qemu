@@ -1,10 +1,12 @@
+config DDC
+    bool
+    depends on I2C
+    select EDID
+
 config EDID
     bool
 
 config FW_CFG_DMA
-    bool
-
-config ADS7846
     bool
 
 config VGA_CIRRUS
@@ -21,10 +23,12 @@ config JAZZ_LED
 
 config PL110
     bool
+    select FRAMEBUFFER
 
 config SII9022
     bool
     depends on I2C
+    select DDC
 
 config SSD0303
     bool
@@ -45,13 +49,13 @@ config VGA_ISA
     depends on ISA_BUS
     select VGA
 
-config VGA_ISA_MM
+config VGA_MMIO
     bool
     select VGA
 
 config VMWARE_VGA
     bool
-    default y if PCI_DEVICES
+    default y if PCI_DEVICES && PC_PCI
     depends on PCI
     select VGA
 
@@ -68,10 +72,6 @@ config BLIZZARD
 config FRAMEBUFFER
     bool
 
-config MILKYMIST_TMU2
-    bool
-    depends on OPENGL && X11
-
 config SM501
     bool
     select I2C
@@ -83,6 +83,10 @@ config TCX
 
 config CG3
     bool
+
+config ARTIST
+    bool
+    select FRAMEBUFFER
 
 config VGA
     bool
@@ -104,11 +108,29 @@ config VIRTIO_VGA
     depends on VIRTIO_PCI
     select VGA
 
+config VHOST_USER_GPU
+    bool
+    default y
+    depends on VIRTIO_GPU && VHOST_USER
+
+config VHOST_USER_VGA
+    bool
+    default y
+    depends on VIRTIO_VGA && VHOST_USER_GPU
+
 config DPCD
     bool
+    select AUX
 
 config ATI_VGA
     bool
     default y if PCI_DEVICES
     depends on PCI
     select VGA
+    select BITBANG_I2C
+    select DDC
+
+config MACFB
+    bool
+    select FRAMEBUFFER
+    depends on NUBUS

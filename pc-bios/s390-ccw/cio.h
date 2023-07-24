@@ -20,7 +20,7 @@ struct pmcw {
     __u32 intparm;      /* interruption parameter */
     __u32 qf:1;         /* qdio facility */
     __u32 w:1;
-    __u32 isc:3;        /* interruption sublass */
+    __u32 isc:3;        /* interruption subclass */
     __u32 res5:3;       /* reserved zeros */
     __u32 ena:1;        /* enabled */
     __u32 lm:2;         /* limit mode */
@@ -122,12 +122,17 @@ typedef struct schib {
 } __attribute__ ((packed, aligned(4))) Schib;
 
 typedef struct subchannel_id {
-        __u32 cssid:8;
-        __u32:4;
-        __u32 m:1;
-        __u32 ssid:2;
-        __u32 one:1;
-        __u32 sch_no:16;
+    union {
+        struct {
+            __u16 cssid:8;
+            __u16 reserved:4;
+            __u16 m:1;
+            __u16 ssid:2;
+            __u16 one:1;
+        };
+        __u16 sch_id;
+    };
+    __u16 sch_no;
 } __attribute__ ((packed, aligned(4))) SubChannelId;
 
 struct chsc_header {

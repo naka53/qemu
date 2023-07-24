@@ -43,7 +43,7 @@ typedef struct RdmaBackendDev {
     struct ibv_context *context;
     struct ibv_comp_channel *channel;
     uint8_t port_num;
-    RdmaProtectedQList recv_mads_list;
+    RdmaProtectedGQueue recv_mads_list;
     RdmaCmMux rdmacm_mux;
 } RdmaBackendDev;
 
@@ -67,5 +67,10 @@ typedef struct RdmaBackendQP {
     uint8_t sgid_idx;
     RdmaProtectedGSList cqe_ctx_list;
 } RdmaBackendQP;
+
+typedef struct RdmaBackendSRQ {
+    struct ibv_srq *ibsrq;
+    RdmaProtectedGSList cqe_ctx_list;
+} RdmaBackendSRQ;
 
 #endif

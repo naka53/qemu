@@ -16,13 +16,15 @@
  * You should have received a copy of the GNU General Public License along
  * with this program; if not, see <http://www.gnu.org/licenses/>.
  */
-#ifndef hw_omap_h
+
+#ifndef HW_ARM_OMAP_H
+#define HW_ARM_OMAP_H
+
 #include "exec/memory.h"
-# define hw_omap_h		"omap.h"
-#include "hw/irq.h"
 #include "hw/input/tsc2xxx.h"
 #include "target/arm/cpu-qom.h"
 #include "qemu/log.h"
+#include "qom/object.h"
 
 # define OMAP_EMIFS_BASE	0x00000000
 # define OMAP2_Q0_BASE		0x00000000
@@ -65,6 +67,55 @@ void omap_clk_canidle(omap_clk clk, int can);
 void omap_clk_setrate(omap_clk clk, int divide, int multiply);
 int64_t omap_clk_getrate(omap_clk clk);
 void omap_clk_reparent(omap_clk clk, omap_clk parent);
+
+/* omap_intc.c */
+#define TYPE_OMAP_INTC "common-omap-intc"
+typedef struct OMAPIntcState OMAPIntcState;
+DECLARE_INSTANCE_CHECKER(OMAPIntcState, OMAP_INTC, TYPE_OMAP_INTC)
+
+
+/*
+ * TODO: Ideally we should have a clock framework that
+ * let us wire these clocks up with QOM properties or links.
+ *
+ * qdev should support a generic means of defining a 'port' with
+ * an arbitrary interface for connecting two devices. Then we
+ * could reframe the omap clock API in terms of clock ports,
+ * and get some type safety. For now the best qdev provides is
+ * passing an arbitrary pointer.
+ * (It's not possible to pass in the string which is the clock
+ * name, because this device does not have the necessary information
+ * (ie the struct omap_mpu_state_s*) to do the clockname to pointer
+ * translation.)
+ */
+void omap_intc_set_iclk(OMAPIntcState *intc, omap_clk clk);
+void omap_intc_set_fclk(OMAPIntcState *intc, omap_clk clk);
+
+/* omap_i2c.c */
+#define TYPE_OMAP_I2C "omap_i2c"
+OBJECT_DECLARE_SIMPLE_TYPE(OMAPI2CState, OMAP_I2C)
+
+
+/* TODO: clock framework (see above) */
+void omap_i2c_set_iclk(OMAPI2CState *i2c, omap_clk clk);
+void omap_i2c_set_fclk(OMAPI2CState *i2c, omap_clk clk);
+
+/* omap_gpio.c */
+#define TYPE_OMAP1_GPIO "omap-gpio"
+typedef struct Omap1GpioState Omap1GpioState;
+DECLARE_INSTANCE_CHECKER(Omap1GpioState, OMAP1_GPIO,
+                         TYPE_OMAP1_GPIO)
+
+#define TYPE_OMAP2_GPIO "omap2-gpio"
+typedef struct Omap2GpioState Omap2GpioState;
+DECLARE_INSTANCE_CHECKER(Omap2GpioState, OMAP2_GPIO,
+                         TYPE_OMAP2_GPIO)
+
+/* TODO: clock framework (see above) */
+void omap_gpio_set_clk(Omap1GpioState *gpio, omap_clk clk);
+
+void omap2_gpio_set_iclk(Omap2GpioState *gpio, omap_clk clk);
+void omap2_gpio_set_fclk(Omap2GpioState *gpio, uint8_t i, omap_clk clk);
 
 /* OMAP2 l4 Interconnect */
 struct omap_l4_s;
@@ -822,8 +873,6 @@ struct omap_mpu_state_s {
     MemoryRegion mpui_io_iomem;
     MemoryRegion tap_iomem;
     MemoryRegion imif_ram;
-    MemoryRegion emiff_ram;
-    MemoryRegion sdram;
     MemoryRegion sram;
 
     struct omap_dma_port_if_s {
@@ -835,7 +884,7 @@ struct omap_mpu_state_s {
                         hwaddr addr);
     } port[__omap_dma_port_last];
 
-    unsigned long sdram_size;
+    uint64_t sdram_size;
     unsigned long sram_size;
 
     /* MPUI-TIPB peripherals */
@@ -932,13 +981,11 @@ struct omap_mpu_state_s {
 };
 
 /* omap1.c */
-struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *system_memory,
-                unsigned long sdram_size,
+struct omap_mpu_state_s *omap310_mpu_init(MemoryRegion *sdram,
                 const char *core);
 
 /* omap2.c */
-struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sysmem,
-                unsigned long sdram_size,
+struct omap_mpu_state_s *omap2420_mpu_init(MemoryRegion *sdram,
                 const char *core);
 
 uint32_t omap_badwidth_read8(void *opaque, hwaddr addr);
@@ -991,4 +1038,4 @@ enum {
 
 # define OMAP_MPUI_REG_MASK		0x000007ff
 
-#endif /* hw_omap_h */
+#endif

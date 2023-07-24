@@ -6,7 +6,7 @@
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
- * version 2 of the License, or (at your option) any later version.
+ * version 2.1 of the License, or (at your option) any later version.
  *
  * This library is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -22,12 +22,13 @@
 #define QCRYPTO_TLSCREDSPSK_H
 
 #include "crypto/tlscreds.h"
+#include "qom/object.h"
 
 #define TYPE_QCRYPTO_TLS_CREDS_PSK "tls-creds-psk"
-#define QCRYPTO_TLS_CREDS_PSK(obj)                  \
-    OBJECT_CHECK(QCryptoTLSCredsPSK, (obj), TYPE_QCRYPTO_TLS_CREDS_PSK)
-
 typedef struct QCryptoTLSCredsPSK QCryptoTLSCredsPSK;
+DECLARE_INSTANCE_CHECKER(QCryptoTLSCredsPSK, QCRYPTO_TLS_CREDS_PSK,
+                         TYPE_QCRYPTO_TLS_CREDS_PSK)
+
 typedef struct QCryptoTLSCredsPSKClass QCryptoTLSCredsPSKClass;
 
 #define QCRYPTO_TLS_CREDS_PSKFILE "keys.psk"
@@ -85,18 +86,6 @@ typedef struct QCryptoTLSCredsPSKClass QCryptoTLSCredsPSKClass;
  *
  * The PSK file can be created and managed using psktool.
  */
-
-struct QCryptoTLSCredsPSK {
-    QCryptoTLSCreds parent_obj;
-    char *username;
-#ifdef CONFIG_GNUTLS
-    union {
-        gnutls_psk_server_credentials_t server;
-        gnutls_psk_client_credentials_t client;
-    } data;
-#endif
-};
-
 
 struct QCryptoTLSCredsPSKClass {
     QCryptoTLSCredsClass parent_class;

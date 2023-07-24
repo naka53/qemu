@@ -19,7 +19,6 @@
  */
 #include "qemu/osdep.h"
 #include "qemu/log.h"
-#include "qemu-common.h"
 #include "qemu/timer.h"
 #include "hw/arm/omap.h"
 #include "hw/irq.h"
@@ -1455,10 +1454,9 @@ static int omap_dma_sys_read(struct omap_dma_s *s, int offset,
     return 0;
 }
 
-static uint64_t omap_dma_read(void *opaque, hwaddr addr,
-                              unsigned size)
+static uint64_t omap_dma_read(void *opaque, hwaddr addr, unsigned size)
 {
-    struct omap_dma_s *s = (struct omap_dma_s *) opaque;
+    struct omap_dma_s *s = opaque;
     int reg, ch;
     uint16_t ret;
 
@@ -1506,7 +1504,7 @@ static uint64_t omap_dma_read(void *opaque, hwaddr addr,
 static void omap_dma_write(void *opaque, hwaddr addr,
                            uint64_t value, unsigned size)
 {
-    struct omap_dma_s *s = (struct omap_dma_s *) opaque;
+    struct omap_dma_s *s = opaque;
     int reg, ch;
 
     if (size != 2) {
@@ -1532,8 +1530,8 @@ static void omap_dma_write(void *opaque, hwaddr addr,
     case 0x404 ... 0x4fe:
         if (s->model <= omap_dma_3_1)
             break;
+        /* fall through */
     case 0x400:
-        /* Fall through. */
         if (omap_dma_sys_write(s, addr, value))
             break;
         return;
@@ -1558,7 +1556,7 @@ static const MemoryRegionOps omap_dma_ops = {
 
 static void omap_dma_request(void *opaque, int drq, int req)
 {
-    struct omap_dma_s *s = (struct omap_dma_s *) opaque;
+    struct omap_dma_s *s = opaque;
     /* The request pins are level triggered in QEMU.  */
     if (req) {
         if (~s->dma->drqbmp & (1ULL << drq)) {
@@ -1572,7 +1570,7 @@ static void omap_dma_request(void *opaque, int drq, int req)
 /* XXX: this won't be needed once soc_dma knows about clocks.  */
 static void omap_dma_clk_update(void *opaque, int line, int on)
 {
-    struct omap_dma_s *s = (struct omap_dma_s *) opaque;
+    struct omap_dma_s *s = opaque;
     int i;
 
     s->dma->freq = omap_clk_getrate(s->clk);
@@ -1704,7 +1702,7 @@ static void omap_dma_interrupts_4_update(struct omap_dma_s *s)
 static uint64_t omap_dma4_read(void *opaque, hwaddr addr,
                                unsigned size)
 {
-    struct omap_dma_s *s = (struct omap_dma_s *) opaque;
+    struct omap_dma_s *s = opaque;
     int irqn = 0, chnum;
     struct omap_dma_channel_s *ch;
 
@@ -1860,7 +1858,7 @@ static uint64_t omap_dma4_read(void *opaque, hwaddr addr,
 static void omap_dma4_write(void *opaque, hwaddr addr,
                             uint64_t value, unsigned size)
 {
-    struct omap_dma_s *s = (struct omap_dma_s *) opaque;
+    struct omap_dma_s *s = opaque;
     int chnum, irqn = 0;
     struct omap_dma_channel_s *ch;
 

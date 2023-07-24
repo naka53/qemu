@@ -20,10 +20,12 @@
 
 #include "qemu/osdep.h"
 #include "qemu/error-report.h"
+#include "qemu/main-loop.h"
+#include "qemu/memalign.h"
 #include "qapi/error.h"
-#include "hw/hw.h"
-#include "hw/xen/xen_common.h"
+#include "hw/xen/xen.h"
 #include "hw/block/xen_blkif.h"
+#include "hw/xen/interface/io/ring.h"
 #include "sysemu/block-backend.h"
 #include "sysemu/iothread.h"
 #include "xen-block.h"
@@ -58,10 +60,13 @@ struct XenBlockDataPlane {
     int requests_inflight;
     unsigned int max_requests;
     BlockBackend *blk;
+    unsigned int sector_size;
     QEMUBH *bh;
     IOThread *iothread;
     AioContext *ctx;
 };
+
+static int xen_block_send_response(XenBlockRequest *request);
 
 static void reset_request(XenBlockRequest *request)
 {
@@ -97,9 +102,9 @@ static XenBlockRequest *xen_block_start_request(XenBlockDataPlane *dataplane)
          * re-use requests, allocate the memory once here. It will be freed
          * xen_block_dataplane_destroy() when the request list is freed.
          */
-        request->buf = qemu_memalign(XC_PAGE_SIZE,
+        request->buf = qemu_memalign(XEN_PAGE_SIZE,
                                      BLKIF_MAX_SEGMENTS_PER_REQUEST *
-                                     XC_PAGE_SIZE);
+                                     XEN_PAGE_SIZE);
         dataplane->requests_total++;
         qemu_iovec_init(&request->v, 1);
     } else {
@@ -114,23 +119,26 @@ out:
     return request;
 }
 
-static void xen_block_finish_request(XenBlockRequest *request)
+static void xen_block_complete_request(XenBlockRequest *request)
 {
     XenBlockDataPlane *dataplane = request->dataplane;
+
+    if (xen_block_send_response(request)) {
+        Error *local_err = NULL;
+
+        xen_device_notify_event_channel(dataplane->xendev,
+                                        dataplane->event_channel,
+                                        &local_err);
+        if (local_err) {
+            error_report_err(local_err);
+        }
+    }
 
     QLIST_REMOVE(request, list);
     dataplane->requests_inflight--;
-}
-
-static void xen_block_release_request(XenBlockRequest *request)
-{
-    XenBlockDataPlane *dataplane = request->dataplane;
-
-    QLIST_REMOVE(request, list);
     reset_request(request);
     request->dataplane = dataplane;
     QLIST_INSERT_HEAD(&dataplane->freelist, request, list);
-    dataplane->requests_inflight--;
 }
 
 /*
@@ -162,12 +170,12 @@ static int xen_block_parse_request(XenBlockRequest *request)
     };
 
     if (request->req.operation != BLKIF_OP_READ &&
-        blk_is_read_only(dataplane->blk)) {
+        !blk_is_writable(dataplane->blk)) {
         error_report("error: write req for ro device");
         goto err;
     }
 
-    request->start = request->req.sector_number * XEN_BLKIF_SECTOR_SIZE;
+    request->start = request->req.sector_number * dataplane->sector_size;
     for (i = 0; i < request->req.nr_segments; i++) {
         if (i == BLKIF_MAX_SEGMENTS_PER_REQUEST) {
             error_report("error: nr_segments too big");
@@ -177,14 +185,14 @@ static int xen_block_parse_request(XenBlockRequest *request)
             error_report("error: first > last sector");
             goto err;
         }
-        if (request->req.seg[i].last_sect * XEN_BLKIF_SECTOR_SIZE >=
-            XC_PAGE_SIZE) {
+        if (request->req.seg[i].last_sect * dataplane->sector_size >=
+            XEN_PAGE_SIZE) {
             error_report("error: page crossing");
             goto err;
         }
 
         len = (request->req.seg[i].last_sect -
-               request->req.seg[i].first_sect + 1) * XEN_BLKIF_SECTOR_SIZE;
+               request->req.seg[i].first_sect + 1) * dataplane->sector_size;
         request->size += len;
     }
     if (request->start + request->size > blk_getlength(dataplane->blk)) {
@@ -218,17 +226,17 @@ static int xen_block_copy_request(XenBlockRequest *request)
         if (to_domain) {
             segs[i].dest.foreign.ref = request->req.seg[i].gref;
             segs[i].dest.foreign.offset = request->req.seg[i].first_sect *
-                XEN_BLKIF_SECTOR_SIZE;
+                dataplane->sector_size;
             segs[i].source.virt = virt;
         } else {
             segs[i].source.foreign.ref = request->req.seg[i].gref;
             segs[i].source.foreign.offset = request->req.seg[i].first_sect *
-                XEN_BLKIF_SECTOR_SIZE;
+                dataplane->sector_size;
             segs[i].dest.virt = virt;
         }
         segs[i].len = (request->req.seg[i].last_sect -
                        request->req.seg[i].first_sect + 1) *
-                      XEN_BLKIF_SECTOR_SIZE;
+                      dataplane->sector_size;
         virt += segs[i].len;
     }
 
@@ -245,7 +253,6 @@ static int xen_block_copy_request(XenBlockRequest *request)
 }
 
 static int xen_block_do_aio(XenBlockRequest *request);
-static int xen_block_send_response(XenBlockRequest *request);
 
 static void xen_block_complete_aio(void *opaque, int ret)
 {
@@ -285,7 +292,6 @@ static void xen_block_complete_aio(void *opaque, int ret)
     }
 
     request->status = request->aio_errors ? BLKIF_RSP_ERROR : BLKIF_RSP_OKAY;
-    xen_block_finish_request(request);
 
     switch (request->req.operation) {
     case BLKIF_OP_WRITE:
@@ -305,19 +311,12 @@ static void xen_block_complete_aio(void *opaque, int ret)
     default:
         break;
     }
-    if (xen_block_send_response(request)) {
-        Error *local_err = NULL;
 
-        xen_device_notify_event_channel(dataplane->xendev,
-                                        dataplane->event_channel,
-                                        &local_err);
-        if (local_err) {
-            error_report_err(local_err);
-        }
+    xen_block_complete_request(request);
+
+    if (dataplane->more_work) {
+        qemu_bh_schedule(dataplane->bh);
     }
-    xen_block_release_request(request);
-
-    qemu_bh_schedule(dataplane->bh);
 
 done:
     aio_context_release(dataplane->ctx);
@@ -336,12 +335,12 @@ static bool xen_block_split_discard(XenBlockRequest *request,
 
     /* Wrap around, or overflowing byte limit? */
     if (sec_start + sec_count < sec_count ||
-        sec_start + sec_count > INT64_MAX / XEN_BLKIF_SECTOR_SIZE) {
+        sec_start + sec_count > INT64_MAX / dataplane->sector_size) {
         return false;
     }
 
-    byte_offset = sec_start * XEN_BLKIF_SECTOR_SIZE;
-    byte_remaining = sec_count * XEN_BLKIF_SECTOR_SIZE;
+    byte_offset = sec_start * dataplane->sector_size;
+    byte_remaining = sec_count * dataplane->sector_size;
 
     do {
         byte_chunk = byte_remaining > BDRV_REQUEST_MAX_BYTES ?
@@ -417,8 +416,8 @@ static int xen_block_do_aio(XenBlockRequest *request)
     return 0;
 
 err:
-    xen_block_finish_request(request);
     request->status = BLKIF_RSP_ERROR;
+    xen_block_complete_request(request);
     return -1;
 }
 
@@ -514,12 +513,13 @@ static int xen_block_get_request(XenBlockDataPlane *dataplane,
  */
 #define IO_PLUG_THRESHOLD 1
 
-static void xen_block_handle_requests(XenBlockDataPlane *dataplane)
+static bool xen_block_handle_requests(XenBlockDataPlane *dataplane)
 {
     RING_IDX rc, rp;
     XenBlockRequest *request;
     int inflight_atstart = dataplane->requests_inflight;
     int batched = 0;
+    bool done_something = false;
 
     dataplane->more_work = 0;
 
@@ -551,6 +551,7 @@ static void xen_block_handle_requests(XenBlockDataPlane *dataplane)
         }
         xen_block_get_request(dataplane, request, rc);
         dataplane->rings.common.req_cons = ++rc;
+        done_something = true;
 
         /* parse them */
         if (xen_block_parse_request(request) != 0) {
@@ -570,17 +571,7 @@ static void xen_block_handle_requests(XenBlockDataPlane *dataplane)
                 break;
             };
 
-            if (xen_block_send_response(request)) {
-                Error *local_err = NULL;
-
-                xen_device_notify_event_channel(dataplane->xendev,
-                                                dataplane->event_channel,
-                                                &local_err);
-                if (local_err) {
-                    error_report_err(local_err);
-                }
-            }
-            xen_block_release_request(request);
+            xen_block_complete_request(request);
             continue;
         }
 
@@ -602,10 +593,7 @@ static void xen_block_handle_requests(XenBlockDataPlane *dataplane)
         blk_io_unplug(dataplane->blk);
     }
 
-    if (dataplane->more_work &&
-        dataplane->requests_inflight < dataplane->max_requests) {
-        qemu_bh_schedule(dataplane->bh);
-    }
+    return done_something;
 }
 
 static void xen_block_dataplane_bh(void *opaque)
@@ -617,21 +605,23 @@ static void xen_block_dataplane_bh(void *opaque)
     aio_context_release(dataplane->ctx);
 }
 
-static void xen_block_dataplane_event(void *opaque)
+static bool xen_block_dataplane_event(void *opaque)
 {
     XenBlockDataPlane *dataplane = opaque;
 
-    qemu_bh_schedule(dataplane->bh);
+    return xen_block_handle_requests(dataplane);
 }
 
 XenBlockDataPlane *xen_block_dataplane_create(XenDevice *xendev,
-                                              BlockConf *conf,
+                                              BlockBackend *blk,
+                                              unsigned int sector_size,
                                               IOThread *iothread)
 {
     XenBlockDataPlane *dataplane = g_new0(XenBlockDataPlane, 1);
 
     dataplane->xendev = xendev;
-    dataplane->blk = conf->blk;
+    dataplane->blk = blk;
+    dataplane->sector_size = sector_size;
 
     QLIST_INIT(&dataplane->inflight);
     QLIST_INIT(&dataplane->freelist);
@@ -681,11 +671,24 @@ void xen_block_dataplane_stop(XenBlockDataPlane *dataplane)
         return;
     }
 
+    xendev = dataplane->xendev;
+
     aio_context_acquire(dataplane->ctx);
-    blk_set_aio_context(dataplane->blk, qemu_get_aio_context());
+    if (dataplane->event_channel) {
+        /* Only reason for failure is a NULL channel */
+        xen_device_set_event_channel_context(xendev, dataplane->event_channel,
+                                             qemu_get_aio_context(),
+                                             &error_abort);
+    }
+    /* Xen doesn't have multiple users for nodes, so this can't fail */
+    blk_set_aio_context(dataplane->blk, qemu_get_aio_context(), &error_abort);
     aio_context_release(dataplane->ctx);
 
-    xendev = dataplane->xendev;
+    /*
+     * Now that the context has been moved onto the main thread, cancel
+     * further processing.
+     */
+    qemu_bh_cancel(dataplane->bh);
 
     if (dataplane->event_channel) {
         Error *local_err = NULL;
@@ -703,6 +706,7 @@ void xen_block_dataplane_stop(XenBlockDataPlane *dataplane)
         Error *local_err = NULL;
 
         xen_device_unmap_grant_refs(xendev, dataplane->sring,
+                                    dataplane->ring_ref,
                                     dataplane->nr_ring_ref, &local_err);
         dataplane->sring = NULL;
 
@@ -722,8 +726,9 @@ void xen_block_dataplane_start(XenBlockDataPlane *dataplane,
                                unsigned int protocol,
                                Error **errp)
 {
+    ERRP_GUARD();
     XenDevice *xendev = dataplane->xendev;
-    Error *local_err = NULL;
+    AioContext *old_context;
     unsigned int ring_size;
     unsigned int i;
 
@@ -736,7 +741,7 @@ void xen_block_dataplane_start(XenBlockDataPlane *dataplane,
 
     dataplane->protocol = protocol;
 
-    ring_size = XC_PAGE_SIZE * dataplane->nr_ring_ref;
+    ring_size = XEN_PAGE_SIZE * dataplane->nr_ring_ref;
     switch (dataplane->protocol) {
     case BLKIF_PROTOCOL_NATIVE:
     {
@@ -759,9 +764,8 @@ void xen_block_dataplane_start(XenBlockDataPlane *dataplane,
     }
 
     xen_device_set_max_grant_refs(xendev, dataplane->nr_ring_ref,
-                                  &local_err);
-    if (local_err) {
-        error_propagate(errp, local_err);
+                                  errp);
+    if (*errp) {
         goto stop;
     }
 
@@ -769,9 +773,8 @@ void xen_block_dataplane_start(XenBlockDataPlane *dataplane,
                                               dataplane->ring_ref,
                                               dataplane->nr_ring_ref,
                                               PROT_READ | PROT_WRITE,
-                                              &local_err);
-    if (local_err) {
-        error_propagate(errp, local_err);
+                                              errp);
+    if (*errp) {
         goto stop;
     }
 
@@ -804,15 +807,23 @@ void xen_block_dataplane_start(XenBlockDataPlane *dataplane,
     dataplane->event_channel =
         xen_device_bind_event_channel(xendev, event_channel,
                                       xen_block_dataplane_event, dataplane,
-                                      &local_err);
-    if (local_err) {
-        error_propagate(errp, local_err);
+                                      errp);
+    if (*errp) {
         goto stop;
     }
 
+    old_context = blk_get_aio_context(dataplane->blk);
+    aio_context_acquire(old_context);
+    /* If other users keep the BlockBackend in the iothread, that's ok */
+    blk_set_aio_context(dataplane->blk, dataplane->ctx, NULL);
+    aio_context_release(old_context);
+
+    /* Only reason for failure is a NULL channel */
     aio_context_acquire(dataplane->ctx);
-    blk_set_aio_context(dataplane->blk, dataplane->ctx);
+    xen_device_set_event_channel_context(xendev, dataplane->event_channel,
+                                         dataplane->ctx, &error_abort);
     aio_context_release(dataplane->ctx);
+
     return;
 
 stop:

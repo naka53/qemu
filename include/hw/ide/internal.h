@@ -6,24 +6,36 @@
  * only files in hw/ide/ are supposed to include this file.
  * non-internal declarations are in hw/ide.h
  */
+
 #include "hw/ide.h"
-#include "hw/isa/isa.h"
 #include "sysemu/dma.h"
-#include "sysemu/sysemu.h"
 #include "hw/block/block.h"
-#include "scsi/constants.h"
+#include "exec/ioport.h"
 
 /* debug IDE devices */
 #define USE_DMA_CDROM
+#include "qom/object.h"
 
-typedef struct IDEBus IDEBus;
 typedef struct IDEDevice IDEDevice;
 typedef struct IDEState IDEState;
 typedef struct IDEDMA IDEDMA;
 typedef struct IDEDMAOps IDEDMAOps;
 
 #define TYPE_IDE_BUS "IDE"
-#define IDE_BUS(obj) OBJECT_CHECK(IDEBus, (obj), TYPE_IDE_BUS)
+OBJECT_DECLARE_SIMPLE_TYPE(IDEBus, IDE_BUS)
+
+#define MAX_IDE_DEVS 2
+
+/* Device/Head ("select") Register */
+#define ATA_DEV_SELECT          0x10
+/* ATA1,3: Defined as '1'.
+ * ATA2:   Reserved.
+ * ATA3-7: obsolete. */
+#define ATA_DEV_ALWAYS_ON       0xA0
+#define ATA_DEV_LBA             0x40
+#define ATA_DEV_LBA_MSB         0x0F  /* LBA 24:27 */
+#define ATA_DEV_HS              0x0F  /* HS 3:0 */
+
 
 /* Bits of HD_STATUS */
 #define ERR_STAT		0x01
@@ -53,8 +65,10 @@ typedef struct IDEDMAOps IDEDMAOps;
 #define REL			0x04
 #define TAG_MASK		0xf8
 
-#define IDE_CMD_RESET           0x04
-#define IDE_CMD_DISABLE_IRQ     0x02
+/* Bits of Device Control register */
+#define IDE_CTRL_HOB            0x80
+#define IDE_CTRL_RESET          0x04
+#define IDE_CTRL_DISABLE_IRQ    0x02
 
 /* ACS-2 T13/2015-D Table B.2 Command codes */
 #define WIN_NOP				0x00
@@ -318,13 +332,12 @@ typedef enum { IDE_HD, IDE_CD, IDE_CFATA } IDEDriveKind;
 
 typedef void EndTransferFunc(IDEState *);
 
-typedef void DMAStartFunc(IDEDMA *, IDEState *, BlockCompletionFunc *);
-typedef void DMAVoidFunc(IDEDMA *);
-typedef int DMAIntFunc(IDEDMA *, int);
-typedef int32_t DMAInt32Func(IDEDMA *, int32_t len);
-typedef void DMAu32Func(IDEDMA *, uint32_t);
-typedef void DMAStopFunc(IDEDMA *, bool);
-typedef void DMARestartFunc(void *, int, RunState);
+typedef void DMAStartFunc(const IDEDMA *, IDEState *, BlockCompletionFunc *);
+typedef void DMAVoidFunc(const IDEDMA *);
+typedef int DMAIntFunc(const IDEDMA *, bool);
+typedef int32_t DMAInt32Func(const IDEDMA *, int32_t len);
+typedef void DMAu32Func(const IDEDMA *, uint32_t);
+typedef void DMAStopFunc(const IDEDMA *, bool);
 
 struct unreported_events {
     bool eject_request;
@@ -359,6 +372,7 @@ struct IDEState {
     uint8_t unit;
     /* ide config */
     IDEDriveKind drive_kind;
+    int drive_heads, drive_sectors;
     int cylinders, heads, sectors, chs_trans;
     int64_t nb_sectors;
     int mult_sectors;
@@ -384,6 +398,9 @@ struct IDEState {
 
     uint8_t select;
     uint8_t status;
+
+    bool io8;
+    bool reset_reverts;
 
     /* set for lba48 access */
     uint8_t lba48;
@@ -471,7 +488,7 @@ struct IDEBus {
     IDEDMA *dma;
     uint8_t unit;
     uint8_t cmd;
-    qemu_irq irq;
+    qemu_irq irq; /* bus output */
 
     int error_status;
     uint8_t retry_unit;
@@ -483,17 +500,12 @@ struct IDEBus {
 };
 
 #define TYPE_IDE_DEVICE "ide-device"
-#define IDE_DEVICE(obj) \
-     OBJECT_CHECK(IDEDevice, (obj), TYPE_IDE_DEVICE)
-#define IDE_DEVICE_CLASS(klass) \
-     OBJECT_CLASS_CHECK(IDEDeviceClass, (klass), TYPE_IDE_DEVICE)
-#define IDE_DEVICE_GET_CLASS(obj) \
-     OBJECT_GET_CLASS(IDEDeviceClass, (obj), TYPE_IDE_DEVICE)
+OBJECT_DECLARE_TYPE(IDEDevice, IDEDeviceClass, IDE_DEVICE)
 
-typedef struct IDEDeviceClass {
+struct IDEDeviceClass {
     DeviceClass parent_class;
     void (*realize)(IDEDevice *dev, Error **errp);
-} IDEDeviceClass;
+};
 
 struct IDEDevice {
     DeviceState qdev;
@@ -554,16 +566,9 @@ static inline uint8_t ide_dma_cmd_to_retry(uint8_t dma_cmd)
     return 0;
 }
 
-static inline IDEState *idebus_active_if(IDEBus *bus)
+static inline IDEState *ide_bus_active_if(IDEBus *bus)
 {
     return bus->ifs + bus->unit;
-}
-
-static inline void ide_set_irq(IDEBus *bus)
-{
-    if (!(bus->cmd & IDE_CMD_DISABLE_IRQ)) {
-        qemu_irq_raise(bus->irq);
-    }
 }
 
 /* hw/ide/core.c */
@@ -600,7 +605,7 @@ void ide_atapi_io_error(IDEState *s, int ret);
 void ide_ioport_write(void *opaque, uint32_t addr, uint32_t val);
 uint32_t ide_ioport_read(void *opaque, uint32_t addr1);
 uint32_t ide_status_read(void *opaque, uint32_t addr);
-void ide_cmd_write(void *opaque, uint32_t addr, uint32_t val);
+void ide_ctrl_write(void *opaque, uint32_t addr, uint32_t val);
 void ide_data_writew(void *opaque, uint32_t addr, uint32_t val);
 uint32_t ide_data_readw(void *opaque, uint32_t addr);
 void ide_data_writel(void *opaque, uint32_t addr, uint32_t val);
@@ -611,12 +616,13 @@ int ide_init_drive(IDEState *s, BlockBackend *blk, IDEDriveKind kind,
                    uint64_t wwn,
                    uint32_t cylinders, uint32_t heads, uint32_t secs,
                    int chs_trans, Error **errp);
-void ide_init2(IDEBus *bus, qemu_irq irq);
 void ide_exit(IDEState *s);
-void ide_init_ioport(IDEBus *bus, ISADevice *isa, int iobase, int iobase2);
-void ide_register_restart_cb(IDEBus *bus);
+void ide_bus_init_output_irq(IDEBus *bus, qemu_irq irq_out);
+int ide_init_ioport(IDEBus *bus, ISADevice *isa, int iobase, int iobase2);
+void ide_bus_set_irq(IDEBus *bus);
+void ide_bus_register_restart_cb(IDEBus *bus);
 
-void ide_exec_cmd(IDEBus *bus, uint32_t val);
+void ide_bus_exec_cmd(IDEBus *bus, uint32_t val);
 
 void ide_transfer_start(IDEState *s, uint8_t *buf, int size,
                         EndTransferFunc *end_transfer_func);
@@ -637,9 +643,13 @@ void ide_atapi_cmd(IDEState *s);
 void ide_atapi_cmd_reply_end(IDEState *s);
 
 /* hw/ide/qdev.c */
-void ide_bus_new(IDEBus *idebus, size_t idebus_size, DeviceState *dev,
-                 int bus_id, int max_units);
-IDEDevice *ide_create_drive(IDEBus *bus, int unit, DriveInfo *drive);
+void ide_bus_init(IDEBus *idebus, size_t idebus_size, DeviceState *dev,
+                  int bus_id, int max_units);
+IDEDevice *ide_bus_create_drive(IDEBus *bus, int unit, DriveInfo *drive);
+
+int ide_get_geometry(BusState *bus, int unit,
+                     int16_t *cyls, int8_t *heads, int8_t *secs);
+int ide_get_bios_chs_trans(BusState *bus, int unit);
 
 int ide_handle_rw_error(IDEState *s, int error, int op);
 
