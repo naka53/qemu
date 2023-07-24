@@ -32,7 +32,7 @@ static QDict *parse_json(const char *filename)
    }
 
    ioc = QIO_CHANNEL(qio_channel_file_new_path(filename, O_RDONLY, 0, NULL));
-   f   = qemu_fopen_channel_input(ioc);
+   f   = qemu_file_new_input(ioc);
 
    if (!f) {
       error_report("qemu_fopen failed");
@@ -66,7 +66,7 @@ static QDict *parse_json(const char *filename)
       QObject *obj = qdict_get(dict, key);                      \
                                                                 \
       if (obj == NULL) {                                        \
-         printf("afl conf qdict get failed '%s' \n", key);      \
+         printf("afl conf qdict get failed\n");                 \
          exit(-1);                                              \
       }                                                         \
                                                                 \
@@ -86,7 +86,6 @@ static void afl_map_obj_conf(afl_t *afl, QDict *json)
                      QTYPE_QNUM, QNum, qnum_get_int);
    __afl_obj_to_conf(afl->config.qemu.vms_tpl, json,"vm-state-template",
                      QTYPE_QSTRING, QString, qstring_get_str);
-
    __afl_obj_to_conf(afl->config.afl.ctl_fd, json,"afl-control-fd",
                      QTYPE_QNUM, QNum, qnum_get_int);
    __afl_obj_to_conf(afl->config.afl.sts_fd, json,"afl-status-fd",
@@ -94,6 +93,8 @@ static void afl_map_obj_conf(afl_t *afl, QDict *json)
    __afl_obj_to_conf(afl->config.afl.trace_size, json,"afl-trace-size",
                      QTYPE_QNUM, QNum, qnum_get_uint);
    __afl_obj_to_conf(afl->config.afl.trace_addr, json,"afl-trace-addr",
+                     QTYPE_QNUM, QNum, qnum_get_uint);
+   __afl_obj_to_conf(afl->config.afl.prev_loc_addr, json,"afl-prev-loc-addr",
                      QTYPE_QNUM, QNum, qnum_get_uint);
    __afl_obj_to_conf(afl->config.afl.trace_env, json,"afl-trace-env",
                      QTYPE_QSTRING, QString, qstring_get_str);

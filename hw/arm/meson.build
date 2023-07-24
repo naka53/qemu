@@ -67,5 +67,6 @@ softmmu_ss.add(when: 'CONFIG_ARM_SMMUV3', if_true: files('smmu-common.c'))
 softmmu_ss.add(when: 'CONFIG_EXYNOS4', if_true: files('exynos4_boards.c'))
 softmmu_ss.add(when: 'CONFIG_RASPI', if_true: files('bcm2835_peripherals.c'))
 softmmu_ss.add(when: 'CONFIG_TOSA', if_true: files('tosa.c'))
+arm_ss.add(when: 'CONFIG_ARM_FUZZ', if_true: files('fuzz/afl.c'))
 
 hw_arch += {'arm': arm_ss}

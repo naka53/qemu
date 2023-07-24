@@ -21,7 +21,7 @@
 #include "qapi/qmp/qerror.h"
 
 #include "cpu.h"
-#include "translate-all.h"
+#include "exec/translate-all.h"
 
 #include "hw/hw.h"
 #include "hw/loader.h"
@@ -34,13 +34,14 @@
 #include "exec/address-spaces.h"
 #include "exec/ram_addr.h"
 #include "exec/gdbstub.h"
-#include "exec/semihost.h"
+#include "semihosting/semihost.h"
 #include "exec/exec-all.h"
 
 #include "sysemu/hw_accel.h"
 #include "sysemu/arch_init.h"
 #include "sysemu/numa.h"
 #include "sysemu/kvm.h"
+#include "sysemu/runstate.h"
 
 #include "migration/migration.h"
 #include "migration/global_state.h"
@@ -48,7 +49,6 @@
 #include "migration/vmstate.h"
 #include "migration/qemu-file-types.h"
 #include "migration/qemu-file.h"
-#include "migration/qemu-file-channel.h"
 #include "migration/savevm.h"
 #include "io/channel-file.h"
 
@@ -60,23 +60,21 @@ typedef uint8_t  u8;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
-
 /*
  * AFL board configuration mode
  */
 #define AFL_DEBUG                1
+//#define AFL_GENCODE_DEBUG        1
 #define AFL_CONTACT              1
 #define AFL_INJECT_TESTCASE      1
-//#define AFL_DUMMY_CASE           1
+//#define AFL_GENCODE              1
 
-//#define AFL_FAST_RESTORE         1
 #define AFL_CONTROL_EXECUTION    1
-//#define AFL_CONTROL_EXEC_ZERO    1
+#define AFL_CONTROL_EXEC_ZERO    1
 #define AFL_CONTROL_PANIC        1
 //#define AFL_CONTROL_CSWITCH      1
-#define AFL_RAM_GUARD            1
 //#define AFL_TRACE_MMIO           1
-#define AFL_PRESERVE_TRACEMAP    1
+//#define AFL_PRESERVE_TRACEMAP    1
 
 #ifdef AFL_CONTACT
 #ifndef AFL_INJECT_TESTCASE
@@ -99,125 +97,127 @@ typedef uint64_t u64;
 #define debug(fmt, ...) do {} while(0)
 #endif
 
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
-#define AFL_TRACE_ADDR        0x80000000
-#elif defined(TARGET_PPC) || defined(TARGET_PPC64)
-#define AFL_TRACE_ADDR        0xe0000000
-#endif
+#define TYPE_AFL_MACHINE "afl"
 
-/*
- * Intel i386/x86_64 specific
- */
-#if defined(TARGET_X86_64) || defined(TARGET_I386)
+#ifdef TARGET_ARM
 
-#include "hw/pci/pci_ids.h"
-#include "hw/i386/pc.h"
-#include "hw/i386/apic.h"
-#include "hw/acpi/acpi.h"
-#include "kvm_i386.h"
-#include "hw/xen/xen.h"
+#include "hw/arm/armv7m.h"
 
-#define PG_P            (1)
-#define PG_RW           (1<<1)
-#define PG_USR          (1<<2)
-#define PG_PS           (1<<7)
-#define PG_GLB          (1<<8)
-#define PG_FULL         (PG_USR|PG_GLB|PG_RW)
+#define SYSCLK_FRQ 112000000ULL
+#define REFCLK_FRQ 112000000ULL
 
-#define PG_4K_SHIFT      12
-#define PG_4K_SIZE      (1<<PG_4K_SHIFT)
-#define pg_4K_nr(addr)  ((addr)>>PG_4K_SHIFT)
+struct AFLMachineState {
+   /*< private >*/
+   SysBusDevice parent_obj;
+   /*< public >*/
 
-#define PG_4M_SHIFT      22
-#define PG_4M_SIZE      (1<<PG_4M_SHIFT)
-#define pg_4M_nr(addr)  ((addr)>>PG_4M_SHIFT)
+   ARMv7MState armv7m;
 
-#define PAGE_SIZE       PG_4K_SIZE
-#define page_nr(addr)   pg_4K_nr(addr)
-#define pd32_idx(addr)  (((addr)>>PG_4M_SHIFT)&0x3ff)
-#define pt32_idx(addr)  (((addr)>>PG_4K_SHIFT)&0x3ff)
+   Clock *sysclk;
+   Clock *refclk;
 
-#define pg_set_entry(_e_,_attr_,_pfn_)                  \
-   ({                                                   \
-      *(_e_) = ((_pfn_)<<PG_4K_SHIFT)|(_attr_)|PG_P;    \
-   })
+   MemoryRegion flash;
+   MemoryRegion ram;
+};
 
-#define pg_set_large_entry(_e_,_attr_,_pfn_)                    \
-   ({                                                           \
-      *(_e_) = ((_pfn_)<<PG_4M_SHIFT)|(_attr_)|PG_PS|PG_P;      \
-   })
-
-void afl_check_intercept(CPUX86State *env, int intno, int is_int,
-                         int error_code, uintptr_t retaddr);
-
-typedef struct afl_x86_board
+typedef struct afl_arm_board
 {
-   X86CPU *cpu;
+   ARMCPU *cpu;
 
-} afl_x86_t;
+} afl_arm_t;
 
-typedef afl_x86_t afl_arch_t;
+typedef afl_arm_t afl_arch_t;
 
 static inline target_ulong afl_get_pc(afl_arch_t *arch)
 {
-   CPUX86State *env = &arch->cpu->env;
-   return env->segs[R_CS].base + env->eip;
+   CPUARMState *env = &arch->cpu->env;
+   return env->regs[15];
 }
 
 static inline void afl_set_pc(afl_arch_t *arch, target_ulong pc)
 {
-   CPUX86State *env = &arch->cpu->env;
-   //env->segs[R_CS].base + env->eip;
-   env->eip = pc; // XXX: set cs ?
+   CPUARMState *env = &arch->cpu->env;
+   env->regs[15] = pc;
 }
 
 static inline target_ulong afl_get_stack(afl_arch_t *arch)
 {
-   CPUX86State *env = &arch->cpu->env;
-   return env->regs[R_ESP];
-}
-
-/*
- * PowerPC specific
- */
-#elif defined(TARGET_PPC) || defined(TARGET_PPC64)
-
-#include "hw/char/serial.h"
-#include "hw/block/fdc.h"
-#include "hw/isa/pc87312.h"
-
-#include "hw/ppc/ppc.h"
-#include "kvm_ppc.h"
-
-typedef struct afl_powerpc_board
-{
-   PowerPCCPU *cpu;
-
-} afl_ppc_t;
-
-typedef afl_ppc_t afl_arch_t;
-
-static inline target_ulong afl_get_pc(afl_arch_t *arch)
-{
-   CPUPPCState *env = &arch->cpu->env;
-   return env->nip;
-}
-
-static inline void afl_set_pc(afl_arch_t *arch, target_ulong pc)
-{
-   CPUPPCState *env = &arch->cpu->env;
-   env->nip = pc;
-}
-
-static inline target_ulong afl_get_stack(afl_arch_t *arch)
-{
-   CPUPPCState *env = &arch->cpu->env;
-   return env->gpr[1];
+   CPUARMState *env = &arch->cpu->env;
+   return env->regs[13];
 }
 
 #endif
 
+#ifdef TARGET_RISCV64
 
+#define AFL_CPU TYPE_RISCV_CPU_AFL
+
+#define AFL_PLIC_BASE            0x40000000
+#define AFL_PLIC_HART_CONFIG     "MS"
+#define AFL_PLIC_NUM_HARTS       1
+#define AFL_PLIC_HARTID_BASE     0
+#define AFL_PLIC_NUM_SOURCES     33
+#define AFL_PLIC_NUM_PRIORITIES  2
+#define AFL_PLIC_PRIORITY_BASE   0x0
+#define AFL_PLIC_PENDING_BASE    0x1000
+#define AFL_PLIC_ENABLE_BASE     0x2000
+#define AFL_PLIC_ENABLE_STRIDE   0x80
+#define AFL_PLIC_CONTEXT_BASE    0x200000
+#define AFL_PLIC_CONTEXT_STRIDE  0x1000
+#define AFL_PLIC_APERTURE_SIZE   0x4000000
+
+#define AFL_CLINT_BASE           0x44010000
+#define AFL_CLINT_MTIMER_SIZE    0x20000
+#define AFL_CLINT_HARTID_BASE    0
+#define AFL_CLINT_NUM_HARTS      1
+#define AFL_CLINT_TIMECMP_BASE   0x10000
+#define AFL_CLINT_TIME_BASE      0x0
+#define AFL_CLINT_MSWI_BASE      0x20000
+#define AFL_CLINT_SSWI_BASE      0x30000
+#define AFL_CLINT_TIMEBASE_FREQ  900000
+
+#include "hw/riscv/riscv_hart.h"
+#include "hw/intc/sifive_plic.h"
+#include "hw/misc/afl_uart.h"
+
+struct AFLMachineState {
+   /*< private >*/
+   SysBusDevice parent_obj;
+   /*< public >*/
+
+   RISCVHartArrayState riscv;
+
+   MemoryRegion rom;
+   MemoryRegion ram;
+};
+
+typedef struct afl_riscv_board
+{
+   RISCVCPU *cpu;
+
+} afl_riscv_t;
+
+typedef afl_riscv_t afl_arch_t;
+
+static inline target_ulong afl_get_pc(afl_arch_t *arch)
+{
+   CPURISCVState *env = &arch->cpu->env;
+   return env->pc;
+}
+
+static inline void afl_set_pc(afl_arch_t *arch, target_ulong pc)
+{
+   CPURISCVState *env = &arch->cpu->env;
+   env->pc = pc;
+}
+
+static inline target_ulong afl_get_stack(afl_arch_t *arch)
+{
+   CPURISCVState *env = &arch->cpu->env;
+   return env->gpr[xSP];
+}
+
+#endif
 
 /*
  * Generic AFL board
@@ -252,6 +252,7 @@ typedef struct afl_configuration
       const char *trace_env;  /* AFL coverage bitmap shared memory
                                * identifier environment variable
                                * name */
+      uint64_t    prev_loc_addr;
    } afl;
 
    /* Virtual Machine (Target) partition information */
@@ -309,6 +310,7 @@ typedef struct afl_board
    // AFL internals
    int            shm_id;
    MemoryRegion   trace_mr;
+   MemoryRegion   prev_loc_mr;
    void          *trace_bits;
 #ifdef AFL_CONTROL_CSWITCH
    MemoryRegion   fake_mr;
@@ -330,19 +332,17 @@ void    afl_cleanup(afl_t*);
 
 void    afl_init(afl_t*, MachineState*);
 void    afl_init_conf(afl_t*);
-void    afl_init_arch(afl_t*, MachineState*, MemoryRegion*);
 void    afl_init_trace_mem(afl_t *afl);
 
-void    afl_remove_breakpoint(afl_t*, uint32_t);
-void    afl_insert_breakpoint(afl_t*, uint32_t);
-void    afl_vm_state_change(void*, int, RunState);
+void    afl_remove_breakpoint(afl_t*, target_ulong);
+void    afl_insert_breakpoint(afl_t*, target_ulong);
+void    afl_vm_state_change(void*, bool, RunState);
 void    afl_forward_child(afl_t*);
 void    afl_user_timeout_cb(void*);
 void    afl_save_vm(afl_t*, int);
 void    afl_load_vm(afl_t*, int);
 size_t  afl_inject_test_case(afl_t*);
-void    afl_arch_ram_guard_setup(afl_t*);
-ssize_t afl_gen_code(uint8_t*, size_t, uint8_t*, size_t);
+size_t  afl_gen_code(uint8_t*, size_t, uint8_t*, size_t);
 void    afl_mem_invalidate(MemoryRegion*, hwaddr, hwaddr);
 
 void    afl_trace_checksum(afl_t*, const char*);

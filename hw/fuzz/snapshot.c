@@ -57,14 +57,13 @@ void afl_save_vm(afl_t *afl, int afd)
    }
 
    QIOChannel *ioc = QIO_CHANNEL(qio_channel_file_new_fd(fd));
-   QEMUFile *f = qemu_fopen_channel_output(ioc);
-
-   debug("save vm state\n");
+   QEMUFile *f = qemu_file_new_output(ioc);
 
    if (!f) {
       error_report("qemu_fopen failed");
       return;
    }
+
    object_unref(OBJECT(ioc));
 
    /* prevent saving AFL trace bitmaps to keep activity trace when
@@ -73,6 +72,8 @@ void afl_save_vm(afl_t *afl, int afd)
 #if !defined(AFL_TRACE_MMIO) && defined(AFL_PRESERVE_TRACEMAP)
    RAMBlock *prev = __qlist_rcu_prev_and_remove(afl->trace_mr.ram_block);
 #endif
+
+   debug("save vm state\n");
 
    /* vm_running = runstate_is_running(); */
    ret = global_state_store();
@@ -83,28 +84,14 @@ void afl_save_vm(afl_t *afl, int afd)
 
    vm_stop(RUN_STATE_SAVE_VM);
 
-   qemu_mutex_unlock_iothread();
-   qemu_savevm_state_header(f);
-   qemu_savevm_state_setup(f);
-   qemu_mutex_lock_iothread();
+   Error *err = NULL;
+    ret = qemu_savevm_state(f, &err);
+    if (ret < 0) {
+        error_report("%s: error %d while saving VM state", __func__, ret);
+        exit(EXIT_FAILURE);
+    }
 
-   while (qemu_file_get_error(f) == 0) {
-      if (qemu_savevm_state_iterate(f, false) > 0) {
-         break;
-      }
-   }
-
-   ret = qemu_file_get_error(f);
-   if (ret == 0) {
-      qemu_savevm_state_complete_precopy(f, false, false);
-      ret = qemu_file_get_error(f);
-   }
-   qemu_savevm_state_cleanup();
-   if (ret != 0) {
-      error_report("Error %d while saving VM state", ret);
-   }
-
-   qemu_fclose(f);
+    qemu_fclose(f);
 
 #if !defined(AFL_TRACE_MMIO) && defined(AFL_PRESERVE_TRACEMAP)
    __qlist_rcu_restore(prev, afl->trace_mr.ram_block);
@@ -113,28 +100,13 @@ void afl_save_vm(afl_t *afl, int afd)
 
 void afl_load_vm(afl_t *afl, int afd)
 {
-#ifdef AFL_FAST_RESTORE
-   /* We triggered #BP on EXEC_END. We can either inject a "jmp main"
-    * or directly fix CPU regs as we are executing in the context of
-    * the partition.
-    */
-   if (afl->status == sts_exit(0)) {
-      target_ulong pc = afl_get_pc(&afl->arch);
-      debug("vm @ 0x"TARGET_FMT_lx"\n", pc);
-      afl_set_pc(&afl->arch, afl->config.tgt.fuzz_ep);
-      //afl_insert_breakpoint(afl, afl->config.tgt.fuzz_ep);
-      //tb_flush(cpu);
-      return;
-   }
-#endif
-
    int ret;
    int fd = dup(afd); // qfile will close it
 
    lseek(fd, 0, SEEK_SET);
 
    QIOChannel *ioc = QIO_CHANNEL(qio_channel_file_new_fd(fd));
-   QEMUFile *f = qemu_fopen_channel_input(ioc);
+   QEMUFile *f = qemu_file_new_input(ioc);
 
    debug("%s()\n", __func__);
 

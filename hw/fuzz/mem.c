@@ -33,9 +33,7 @@
  * cpu_physical_memory_set_dirty_range().However we still implement
  * the xen specific case present in this later function.
  */
-#if defined(AFL_RAM_GUARD) ||                                   \
-   defined(AFL_DUMMY_CASE) ||                                   \
-   defined(AFL_INJECT_TESTCASE)
+#if defined(AFL_INJECT_TESTCASE)
 void afl_mem_invalidate(MemoryRegion *mr, hwaddr addr, hwaddr len)
 {
    assert(mr->ram_block);

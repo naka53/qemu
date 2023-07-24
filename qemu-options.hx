@@ -4296,6 +4296,13 @@ SRST
     To list all the data directories, use ``-L help``.
 ERST
 
+DEF("gustave", HAS_ARG, QEMU_OPTION_gustave, \
+    "-gustave file   GUSTAVE fuzzer JSON configuration filename\n", QEMU_ARCH_ALL)
+SRST
+``-gustave file``
+    GUSTAVE fuzzer JSON configuration filename.
+ERST
+
 DEF("enable-kvm", 0, QEMU_OPTION_enable_kvm, \
     "-enable-kvm     enable KVM full virtualization support\n",
     QEMU_ARCH_ARM | QEMU_ARCH_I386 | QEMU_ARCH_MIPS | QEMU_ARCH_PPC |

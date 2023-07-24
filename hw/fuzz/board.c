@@ -22,7 +22,7 @@ afl_t* afl_pre_init(void)
 static void afl_init_ram(afl_t *afl, MachineState *mcs, MemoryRegion *sysmem)
 {
    afl->ram_size = mcs->ram_size;
-   debug("ram size %lu max %lu\n",
+   debug("ram size 0x%lx max 0x%lx\n",
          mcs->ram_size, mcs->maxram_size);
 
    if (afl->ram_mr == NULL) {
@@ -125,7 +125,6 @@ void afl_init(afl_t *afl, MachineState *mcs)
    MemoryRegion *sysmem = get_system_memory();
 
    afl_init_conf(afl);
-   afl_init_arch(afl, mcs, sysmem);
    afl_init_cpu(afl, mcs);
    afl_init_ram(afl, mcs, sysmem);
    afl_init_vm(afl);

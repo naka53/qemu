@@ -11,4 +11,7 @@ riscv_ss.add(when: 'CONFIG_SPIKE', if_true: files('spike.c'))
 riscv_ss.add(when: 'CONFIG_MICROCHIP_PFSOC', if_true: files('microchip_pfsoc.c'))
 riscv_ss.add(when: 'CONFIG_ACPI', if_true: files('virt-acpi-build.c'))
 
+riscv_ss.add(when: 'CONFIG_RISCV_FUZZ', if_true: files('fuzz/afl.c'))
+riscv_ss.add(when: 'CONFIG_RISCV_FUZZ', if_true: files('fuzz/os.c'))
+
 hw_arch += {'riscv': riscv_ss}

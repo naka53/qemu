@@ -252,6 +252,16 @@ static QemuOptsList qemu_option_rom_opts = {
     },
 };
 
+static QemuOptsList qemu_gustave_opts = {
+    .name = "gustave",
+    .implied_opt_name = "gustave",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_gustave_opts.head),
+    .merge_lists = true,
+    .desc = {
+        { /* end of list */ }
+    },
+};
+
 static QemuOptsList qemu_accel_opts = {
     .name = "accel",
     .implied_opt_name = "accel",
@@ -2657,6 +2667,7 @@ void qemu_init(int argc, char **argv)
     qemu_add_opts(&qemu_trace_opts);
     qemu_plugin_add_opts();
     qemu_add_opts(&qemu_option_rom_opts);
+    qemu_add_opts(&qemu_gustave_opts);
     qemu_add_opts(&qemu_accel_opts);
     qemu_add_opts(&qemu_mem_opts);
     qemu_add_opts(&qemu_smp_opts);
@@ -3232,6 +3243,13 @@ void qemu_init(int argc, char **argv)
                     }
                     g_slist_free(accel_list);
                     exit(0);
+                }
+                break;
+           case QEMU_OPTION_gustave:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("gustave"),
+                                               optarg, true);
+                if (!opts) {
+                    exit(1);
                 }
                 break;
             case QEMU_OPTION_usb:

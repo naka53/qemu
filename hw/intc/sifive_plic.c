@@ -407,6 +407,10 @@ static const VMStateDescription vmstate_sifive_plic = {
     .version_id = 1,
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
+            VMSTATE_UINT32(num_addrs, SiFivePLICState),
+            VMSTATE_UINT32(num_harts, SiFivePLICState),
+            VMSTATE_UINT32(bitfield_words, SiFivePLICState),
+            VMSTATE_UINT32(num_enables, SiFivePLICState),
             VMSTATE_VARRAY_UINT32(source_priority, SiFivePLICState,
                                   num_sources, 0,
                                   vmstate_info_uint32, uint32_t),

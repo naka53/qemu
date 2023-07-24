@@ -7,7 +7,6 @@
  */
 #include "qemu/afl.h"
 
-
 /*
  * cf. afl-src/hash.h
  * cf. afl-src/config.h
@@ -191,10 +190,7 @@ void afl_init_trace_mem(afl_t *afl)
                                &afl->trace_mr);
 #endif
 
-   /* debug("AFL trace MR %p ram block %p offset 0x%lx\n", */
-   /*       &afl->trace_mr, */
-   /*       afl->trace_mr.ram_block, */
-   /*       afl->trace_mr.ram_block->offset */
-   /*    ); */
+   memory_region_init_ram(&afl->prev_loc_mr, NULL, "afl_prev_loc", 0x10, &error_fatal);
+   memory_region_add_subregion(get_system_memory(), afl->config.afl.prev_loc_addr, &afl->prev_loc_mr);
 }
 #endif

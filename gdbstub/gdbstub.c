@@ -1959,6 +1959,9 @@ void gdb_set_stop_cpu(CPUState *cpu)
 {
     GDBProcess *p = gdb_get_cpu_process(cpu);
 
+    if (!gdbserver_state.init)
+        return;
+    
     if (!p->attached) {
         /*
          * Having a stop CPU corresponding to a process that is not attached

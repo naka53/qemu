@@ -18,6 +18,10 @@ config MICROCHIP_PFSOC
     select SIFIVE_PLIC
     select UNIMP
 
+config RISCV_FUZZ
+    bool
+    select AFL_UART
+
 config OPENTITAN
     bool
     select IBEX

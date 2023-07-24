@@ -6,6 +6,7 @@
  * GPLv2
  */
 #include "qemu/afl.h"
+#include "exec/tb-flush.h"
 
 static void afl_run_target(afl_t *afl);
 
@@ -271,19 +272,6 @@ __wait_test_case:
  */
 static void afl_handle_start_fuzzing(afl_t *afl)
 {
-#ifdef AFL_DUMMY_CASE
-   debug("DUMMY TEST CASE\n");
-   void *out   = afl->ram_ptr + afl->config.tgt.fuzz_inj;
-   ssize_t len = 2;
-   //*((uint8_t*)out) = 0x90;
-   *((uint16_t*)out) = 0xfeeb;
-   afl_mem_invalidate(afl->ram_mr, afl->config.tgt.fuzz_inj, len);
-#endif
-
-#ifdef AFL_RAM_GUARD
-   afl_arch_ram_guard_setup(afl);
-#endif
-
 #ifdef AFL_CONTACT
    /* release AFL init_forkserver() */
    debug("say hello to AFL\n");
@@ -356,13 +344,12 @@ static void async_debug_vm(CPUState *cpu, run_on_cpu_data data)
 static void async_panic_vm(CPUState *cpu, run_on_cpu_data data)
 {
    afl_t  *afl  = (afl_t*)data.host_ptr;
-   int    intno = cpu->exception_index;
+
+   debug("excp #%d @ 0x"TARGET_FMT_lx"\n",
+         cpu->exception_index, afl_get_pc(&afl->arch));
 
    /* coherency with default Qemu behavior */
    cpu->exception_index = -1;
-
-   debug("excp #%d @ 0x"TARGET_FMT_lx"\n",
-         intno, afl_get_pc(&afl->arch));
 
    afl_handle_abort(afl);
 }
@@ -372,12 +359,10 @@ static void async_panic_vm(CPUState *cpu, run_on_cpu_data data)
  * We trap any VM status change, ie. breakpoints, restore, ...
  * and proceed with corresponding action.
  */
-void afl_vm_state_change(void *opaque, int running, RunState state)
+void afl_vm_state_change(void *opaque, bool running, RunState state)
 {
    afl_t    *afl = (afl_t*)opaque;
    CPUState *cpu = CPU(afl->arch.cpu);
-
-   debug("vm state %s\n", RunState_str(state));
 
    if (running || state == RUN_STATE_PAUSED) {
       return;

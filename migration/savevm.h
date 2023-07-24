@@ -60,6 +60,7 @@ void qemu_savevm_send_postcopy_ram_discard(QEMUFile *f, const char *name,
 void qemu_savevm_send_colo_enable(QEMUFile *f);
 void qemu_savevm_live_state(QEMUFile *f);
 int qemu_save_device_state(QEMUFile *f);
+int qemu_savevm_state(QEMUFile *f, Error **errp);
 
 int qemu_loadvm_state(QEMUFile *f);
 void qemu_loadvm_state_cleanup(void);
