@@ -3635,6 +3635,7 @@ subdir('tcg')
 subdir('fpu')
 subdir('accel')
 subdir('plugins')
+subdir('gustave')
 subdir('ebpf')
 
 common_user_inc = []

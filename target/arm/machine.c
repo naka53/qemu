@@ -1111,3 +1111,11 @@ const VMStateDescription vmstate_arm_cpu = {
         NULL
     }
 };
+
+void arm_cpu_save(ARMCPU *s, QEMUFile *f) {
+    vmstate_save_state(f, &vmstate_arm_cpu, s, NULL);
+}
+
+void arm_cpu_load(ARMCPU *s, QEMUFile *f) {
+    vmstate_load_state(f, &vmstate_arm_cpu, s, vmstate_arm_cpu.version_id);
+}

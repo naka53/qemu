@@ -2569,6 +2569,14 @@ static const VMStateDescription vmstate_nvic = {
     }
 };
 
+void nvic_save(NVICState *s, QEMUFile *f) {
+    vmstate_save_state(f, &vmstate_nvic, s, NULL);
+}
+
+void nvic_load(NVICState *s, QEMUFile *f) {
+    vmstate_load_state(f, &vmstate_nvic, s, vmstate_nvic.version_id);
+}
+
 static Property props_nvic[] = {
     /* Number of external IRQ lines (so excluding the 16 internal exceptions) */
     DEFINE_PROP_UINT32("num-irq", NVICState, num_irq, 64),

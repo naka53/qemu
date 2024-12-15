@@ -4167,6 +4167,13 @@ SRST
     Set the filename for the BIOS.
 ERST
 
+DEF("gustave", HAS_ARG, QEMU_OPTION_gustave, \
+    "-gustave file   GUSTAVE fuzzer JSON configuration filename\n", QEMU_ARCH_ALL)
+SRST
+``-gustave file``
+    GUSTAVE fuzzer JSON configuration filename.
+ERST
+
 DEF("pflash", HAS_ARG, QEMU_OPTION_pflash,
     "-pflash file    use 'file' as a parallel flash image\n", QEMU_ARCH_ALL)
 SRST
