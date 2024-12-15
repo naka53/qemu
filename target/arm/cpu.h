@@ -939,6 +939,9 @@ struct ArchCPU {
     /* For v8M, initial value of the Non-secure VTOR */
     uint32_t init_nsvtor;
 
+    /* For v7M, data reading endianness */
+    uint32_t data_endianness;
+
     /* [QEMU_]KVM_ARM_TARGET_* constant for this CPU, or
      * QEMU_KVM_ARM_TARGET_NONE if the kernel doesn't support this CPU type.
      */
@@ -3379,5 +3382,8 @@ static inline target_ulong cpu_untagged_addr(CPUState *cs, target_ulong x)
     return x;
 }
 #endif
+
+void arm_cpu_save(ARMCPU *s, QEMUFile *f);
+void arm_cpu_load(ARMCPU *s, QEMUFile *f);
 
 #endif

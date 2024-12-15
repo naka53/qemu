@@ -712,3 +712,13 @@ config ARMSSE
     select UNIMP
     select SSE_COUNTER
     select SSE_TIMER
+
+config AFL
+    bool
+    select ARM_V7M
+
+config AFL_BOARD
+    bool
+    default y
+    depends on TCG && ARM
+    select AFL

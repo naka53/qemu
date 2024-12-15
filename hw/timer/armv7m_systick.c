@@ -285,6 +285,14 @@ static const VMStateDescription vmstate_systick = {
     }
 };
 
+void systick_save(SysTickState *s, QEMUFile *f) {
+    vmstate_save_state(f, &vmstate_systick, s, NULL);
+}
+
+void systick_load(SysTickState *s, QEMUFile *f) {
+    vmstate_load_state(f, &vmstate_systick, s, vmstate_systick.version_id);
+}
+
 static void systick_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);

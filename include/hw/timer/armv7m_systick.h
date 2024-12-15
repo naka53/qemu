@@ -47,4 +47,7 @@ struct SysTickState {
     Clock *cpuclk;
 };
 
+void systick_save(SysTickState *s, QEMUFile *f);
+void systick_load(SysTickState *s, QEMUFile *f);
+
 #endif

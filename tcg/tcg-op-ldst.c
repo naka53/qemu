@@ -31,6 +31,36 @@
 #include "exec/plugin-gen.h"
 #include "tcg-internal.h"
 
+#include "afl/config.h"
+#include "afl/instrumentation.h"
+#include "sysemu/runstate.h"
+
+uint8_t *mem_bitmap;
+
+void HELPER(oracle_memory_access_log)(uint64_t addr, uint32_t size) {
+    size_t q = addr / 8;
+    size_t r = addr % 8;
+
+    while(size--) {
+        if ((mem_bitmap[q] & (1 << r)) == 0)
+           oracle_illegal_memory_access();
+
+        if (++r > 7) {
+            r = 0;
+            q++;
+        }
+    }
+}
+
+#ifdef MEMORY_ACCESS_ORACLE
+/* Generates TCG code for AFL's oracle memory access instrumentation. */
+static void oracle_gen_memory_access_log(TCGTemp *addr, MemOp memop) {
+    TCGv_i64 addr_v = temp_tcgv_i64(addr);
+    TCGv_i32 size = tcg_constant_i32(memop_size(memop));
+
+    gen_helper_oracle_memory_access_log(addr_v, size);
+}
+#endif
 
 static void check_max_alignment(unsigned a_bits)
 {
@@ -183,6 +213,10 @@ static void tcg_gen_qemu_ld_i32_int(TCGv_i32 val, TCGTemp *addr,
     TCGv_i64 copy_addr;
     TCGOpcode opc;
 
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
+
     tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);
     orig_memop = memop = tcg_canonicalize_memop(memop, 0, 0);
     orig_oi = oi = make_memop_idx(memop, idx);
@@ -235,6 +269,10 @@ static void tcg_gen_qemu_st_i32_int(TCGv_i32 val, TCGTemp *addr,
     TCGv_i32 swap = NULL;
     MemOpIdx orig_oi, oi;
     TCGOpcode opc;
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 
     tcg_gen_req_mo(TCG_MO_LD_ST | TCG_MO_ST_ST);
     memop = tcg_canonicalize_memop(memop, 0, 1);
@@ -293,6 +331,10 @@ static void tcg_gen_qemu_ld_i64_int(TCGv_i64 val, TCGTemp *addr,
     MemOpIdx orig_oi, oi;
     TCGv_i64 copy_addr;
     TCGOpcode opc;
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_ld_i32_int(TCGV_LOW(val), addr, idx, memop);
@@ -360,6 +402,10 @@ static void tcg_gen_qemu_st_i64_int(TCGv_i64 val, TCGTemp *addr,
     TCGv_i64 swap = NULL;
     MemOpIdx orig_oi, oi;
     TCGOpcode opc;
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_st_i32_int(TCGV_LOW(val), addr, idx, memop);
@@ -509,6 +555,10 @@ static void tcg_gen_qemu_ld_i128_int(TCGv_i128 val, TCGTemp *addr,
     TCGv_i64 ext_addr = NULL;
     TCGOpcode opc;
 
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
+
     check_max_alignment(get_alignment_bits(memop));
     tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);
 
@@ -624,6 +674,10 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
     MemOpIdx orig_oi;
     TCGv_i64 ext_addr = NULL;
     TCGOpcode opc;
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 
     check_max_alignment(get_alignment_bits(memop));
     tcg_gen_req_mo(TCG_MO_ST_LD | TCG_MO_ST_ST);

@@ -2285,6 +2285,9 @@ static int gdb_handle_packet(const char *line_buf)
 
 void gdb_set_stop_cpu(CPUState *cpu)
 {
+    if (!gdbserver_state.init)
+        return;
+
     GDBProcess *p = gdb_get_cpu_process(cpu);
 
     if (!p->attached) {
