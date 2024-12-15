@@ -41,6 +41,7 @@
 #include "tb-context.h"
 #include "internal-common.h"
 #include "internal-target.h"
+#include "sysemu/runstate.h"
 
 /* -icount align implementation. */
 
@@ -725,6 +726,14 @@ static inline bool cpu_handle_exception(CPUState *cpu, int *ret)
     if (cpu->exception_index >= EXCP_INTERRUPT) {
         /* exit request from the cpu execution loop */
         *ret = cpu->exception_index;
+        
+        /* AFL exceptions interception */
+        if (*ret >= EXCP_INTERCEPT) {
+            cpu->exception_index -= EXCP_INTERCEPT;
+            vm_stop(RUN_STATE_GUEST_PANICKED);
+            return true;
+        }
+
         if (*ret == EXCP_DEBUG) {
             cpu_handle_debug_exception(cpu);
         }
