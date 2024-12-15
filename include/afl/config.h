@@ -1,0 +1,19 @@
+#ifndef AFL_CONFIG_H
+#define AFL_CONFIG_H
+
+#define GUSTAVE_ACTIVATED
+#define AFL_ACTIVATED
+#define MEMORY_ACCESS_ORACLE
+#define UFFD_SNAPSHOT
+//#define SHARED_SNAPSHOT
+
+#ifdef AFL_ACTIVATED
+#define GUSTAVE_ACTIVATED
+#endif
+
+#ifdef MEMORY_ACCESS_ORACLE
+#define GUSTAVE_ACTIVATED
+#define AFL_ACTIVATED
+#endif
+
+#endif

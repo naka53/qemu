@@ -102,6 +102,7 @@ struct ARMv7MState {
     Object *idau;
     uint32_t init_svtor;
     uint32_t init_nsvtor;
+    uint32_t data_endianness;
     uint32_t mpu_ns_regions;
     uint32_t mpu_s_regions;
     bool enable_bitband;

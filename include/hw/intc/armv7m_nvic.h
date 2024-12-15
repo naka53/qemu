@@ -206,4 +206,7 @@ static inline bool armv7m_nvic_can_take_pending_exception(NVICState *s)
 }
 #endif
 
+void nvic_save(NVICState *s, QEMUFile *f);
+void nvic_load(NVICState *s, QEMUFile *f);
+
 #endif
