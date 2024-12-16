@@ -3,6 +3,8 @@
 
 #define AFL_QEMU_NOT_ZERO
 
+#define SHARED_SNAPSHOT_NAME  "/GUSTAVE.SNAPSHOT"
+
 #define FILTER_BITMAP_NAME "/GUSTAVE.BITMAP"
 #define FILTER_BITMAP_SIZE (1 << 29)
 #define FLT_RNG_ENTRY_SZ   (sizeof(target_ulong) * 2)

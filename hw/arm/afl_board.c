@@ -32,7 +32,7 @@ static void afl_board_init(MachineState *m)
     armv7m_load_kernel(ARM_CPU(first_cpu), m->kernel_filename, AFL_ROM_BASE_ADDR, AFL_ROM_SIZE);
 
 #ifdef GUSTAVE_ACTIVATED
-    afl_init(afl, m);
+    afl_init(afl);
 #endif
 }
 
