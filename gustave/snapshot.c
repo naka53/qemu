@@ -1,5 +1,6 @@
 #include "afl/config.h"
 #include "afl/common.h"
+#include "afl/instrumentation.h"
 
 #include "io/channel-file.h"
 #include "migration/qemu-file.h"
@@ -61,12 +62,12 @@ static void snapshot_shared_create(afl_t *afl) {
 }
 #endif
 
-void afl_init_snapshot(void) {
+void afl_init_snapshot(afl_t *afl) {
     temp_file_reg = g_strdup_printf("%s/vmst.reg.XXXXXX", g_get_tmp_dir());
     temp_fd_reg = mkostemp(temp_file_reg, O_RDWR | O_CREAT | O_TRUNC);
 
 #ifdef SHARED_SNAPSHOT
-    //shm_unlink(SHARED_SNAPSHOT_NAME);
+    shm_unlink(SHARED_SNAPSHOT_NAME);
     temp_fd_ram = shm_open(SHARED_SNAPSHOT_NAME, O_RDONLY, S_IRUSR | S_IWUSR);
     
     if (temp_fd_ram < 0)
