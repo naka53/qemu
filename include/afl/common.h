@@ -8,8 +8,6 @@
 #include "hw/intc/armv7m_nvic.h"
 #include "hw/timer/armv7m_systick.h"
 
-#define SHARED_SNAPSHOT_NAME  "/GUSTAVE.SNAPSHOT"
-
 /* waitpid() status format */
 #define create_wait_status(code, signal)        \
     (((int)code)<<8 | (int)(signal & 0x7f))
@@ -44,9 +42,6 @@ typedef struct afl_arm_t {
   NVICState *nvic;
   SysTickState (*systick)[M_REG_NUM_BANKS];
   MemoryRegion *ram_mr;
-
-  uint8_t *ram_state;
-
 } afl_arm_t;
 
 typedef struct afl_t {
@@ -69,9 +64,9 @@ typedef struct afl_t {
 extern afl_t *afl;
 
 void afl_cleanup(afl_t *);
-void afl_init(afl_t *, MachineState *);
+void afl_init(afl_t *);
 void afl_init_conf(afl_t *);
-void afl_init_snapshot(void);
+void afl_init_snapshot(afl_t *);
 void afl_init_mem_bitmap(afl_t *);
 void afl_remove_breakpoint(afl_t *, uint64_t);
 void afl_insert_breakpoint(afl_t *, uint64_t);

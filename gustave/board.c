@@ -66,14 +66,14 @@ void afl_cleanup(afl_t *afl)
     //XXX: unmap(), shmdt() ...
 }
 
-void afl_init(afl_t *afl, MachineState *mcs)
+void afl_init(afl_t *afl)
 { 
     afl_init_conf(afl);
     afl_init_cpu(afl);
 
 #ifdef AFL_ACTIVATED
     afl_setup(afl);
-    afl_init_snapshot();
+    afl_init_snapshot(afl);
 #endif
 
 #ifdef MEMORY_ACCESS_ORACLE
