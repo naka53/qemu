@@ -715,7 +715,7 @@ static bool arm_v7m_load_vector(ARMCPU *cpu, int exc, bool targets_secure,
     }
 
     if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
-        vector_entry = address_space_ldl_le(arm_addressspace(cs, attrs), addr,
+        vector_entry = address_space_ldl_be(arm_addressspace(cs, attrs), addr,
                                         attrs, &result);
     else
         vector_entry = address_space_ldl(arm_addressspace(cs, attrs), addr,
