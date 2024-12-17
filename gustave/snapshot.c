@@ -7,7 +7,7 @@
 
 #include "qemu/userfaultfd.h"
 
-#define PAGE_SIZE   getpagesize()
+#define PAGE_SIZE   4096
 
 static char *temp_file_reg;
 static int temp_fd_reg;
@@ -16,13 +16,14 @@ static int temp_fd_reg;
     static uint8_t *temp_map_ram;
 #endif
 #ifndef SHARED_SNAPSHOT
-    static char *temp_file_ram;
+static char *temp_file_ram;
 #endif
 static int temp_fd_ram;
 
 #ifdef UFFD_SNAPSHOT
 static int uffd_fd;
-static uint8_t *bitmap;
+static uint64_t *bitmap;
+static size_t size_bitmap;
 
 static void *handler(void *arg) {
     afl_t *afl = (afl_t *)arg;
@@ -37,8 +38,7 @@ static void *handler(void *arg) {
 
         if (res) {
             offset = ((uint64_t)uffd_msg.arg.pagefault.address - (uint64_t)sram_mem);
-    
-            bitmap[offset / (PAGE_SIZE * 8)] |= 1 << ((offset % (PAGE_SIZE * 8) / 4096));
+            bitmap[offset / (PAGE_SIZE * 64)] |= 1 << (((offset % (PAGE_SIZE * 64)) / PAGE_SIZE));
 
             if (uffd_change_protection(uffd_fd, (void *)uffd_msg.arg.pagefault.address, PAGE_SIZE, false, false)) {
                 fprintf(stderr, "failed to change protection mode unset\n");
@@ -117,8 +117,9 @@ void afl_save_ram(afl_t *afl)
 #ifdef UFFD_SNAPSHOT
     pthread_t uffd_thread;
 
-    bitmap = malloc(sram_size / PAGE_SIZE / 8);
-    memset(bitmap, 0, sram_size / PAGE_SIZE / 8);
+    size_bitmap = (sram_size / PAGE_SIZE / 64) ? (sram_size / PAGE_SIZE / 64) : 1;
+    bitmap = malloc(size_bitmap * sizeof(uint64_t));
+    memset(bitmap, 0, size_bitmap * sizeof(uint64_t));
 
     if (uffd_register_memory(uffd_fd, sram_mem,
                 sram_size, UFFDIO_REGISTER_MODE_WP, NULL)) {
@@ -145,17 +146,17 @@ void afl_load_ram(afl_t *afl)
 #ifdef UFFD_SNAPSHOT
     uint64_t offset;
 
-    for (int i = 0; i < sram_size / (PAGE_SIZE * 8); i++) {
-        for (int j = 0; j < 8; j++) {
-            if (bitmap[i] & (1 << j)) {
-                offset = i * 8 * PAGE_SIZE + j * PAGE_SIZE;
+    for (uint64_t i = 0; i < size_bitmap; i++) {
+        for (uint64_t j = 0; j < 64; j++) {
+            if (bitmap[i] & ((uint64_t)1 << j)) {
+                offset = i * PAGE_SIZE * 64 + j * PAGE_SIZE;
                 memcpy((void *)(sram_mem + offset), (void *)(temp_map_ram + offset), PAGE_SIZE);
             }
         }
     }
 
-    memset(bitmap, 0, sram_size / PAGE_SIZE / 8);
-    
+    memset(bitmap, 0, size_bitmap * sizeof(uint64_t));
+
     if (uffd_change_protection(uffd_fd, sram_mem, sram_size, true, false)) {
         fprintf(stderr, "failed to change protection mode set\n");
         exit(EXIT_FAILURE);
