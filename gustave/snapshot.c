@@ -5,10 +5,6 @@
 #include "io/channel-file.h"
 #include "migration/qemu-file.h"
 
-#include "qemu/userfaultfd.h"
-
-#define PAGE_SIZE   4096
-
 static char *temp_file_reg;
 static int temp_fd_reg;
 
