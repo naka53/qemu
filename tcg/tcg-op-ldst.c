@@ -33,9 +33,11 @@
 
 #include "afl/config.h"
 #include "afl/instrumentation.h"
+#include "hw/arm/afl_soc.h"
 #include "sysemu/runstate.h"
 
 uint8_t *mem_bitmap;
+uint8_t *snap_bitmap;
 
 void HELPER(oracle_memory_access_log)(uint64_t addr, uint32_t size) {
     size_t q = addr / 8;
@@ -52,6 +54,16 @@ void HELPER(oracle_memory_access_log)(uint64_t addr, uint32_t size) {
     }
 }
 
+void HELPER(afl_dirty_bitmap)(uint64_t addr) {
+    if (!snap_bitmap)
+        return;
+
+    if (addr < AFL_SRAM_BASE_ADDR || addr > (AFL_SRAM_BASE_ADDR + AFL_SRAM_SIZE))
+        return;
+
+    snap_bitmap[(addr - AFL_SRAM_BASE_ADDR) / PAGE_SIZE] = 1;
+}
+
 #ifdef MEMORY_ACCESS_ORACLE
 /* Generates TCG code for AFL's oracle memory access instrumentation. */
 static void oracle_gen_memory_access_log(TCGTemp *addr, MemOp memop) {
@@ -61,6 +73,13 @@ static void oracle_gen_memory_access_log(TCGTemp *addr, MemOp memop) {
     gen_helper_oracle_memory_access_log(addr_v, size);
 }
 #endif
+
+/* Generates TCG code for AFL's dirty bitmap instrumentation. */
+static void afl_gen_dirty_bitmap(TCGTemp *addr, MemOp memop) {
+    TCGv_i64 addr_v = temp_tcgv_i64(addr);
+
+    gen_helper_afl_dirty_bitmap(addr_v);
+}
 
 static void check_max_alignment(unsigned a_bits)
 {
@@ -273,6 +292,7 @@ static void tcg_gen_qemu_st_i32_int(TCGv_i32 val, TCGTemp *addr,
 #ifdef MEMORY_ACCESS_ORACLE
     oracle_gen_memory_access_log(addr, memop);
 #endif
+    afl_gen_dirty_bitmap(addr, memop);
 
     tcg_gen_req_mo(TCG_MO_LD_ST | TCG_MO_ST_ST);
     memop = tcg_canonicalize_memop(memop, 0, 1);
@@ -406,6 +426,7 @@ static void tcg_gen_qemu_st_i64_int(TCGv_i64 val, TCGTemp *addr,
 #ifdef MEMORY_ACCESS_ORACLE
     oracle_gen_memory_access_log(addr, memop);
 #endif
+    afl_gen_dirty_bitmap(addr, memop);
 
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_st_i32_int(TCGV_LOW(val), addr, idx, memop);
@@ -678,6 +699,7 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
 #ifdef MEMORY_ACCESS_ORACLE
     oracle_gen_memory_access_log(addr, memop);
 #endif
+    afl_gen_dirty_bitmap(addr, memop);
 
     check_max_alignment(get_alignment_bits(memop));
     tcg_gen_req_mo(TCG_MO_ST_LD | TCG_MO_ST_ST);

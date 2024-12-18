@@ -3,6 +3,8 @@
 
 #define AFL_QEMU_NOT_ZERO
 
+#define PAGE_SIZE 4096
+
 #define SHARED_SNAPSHOT_NAME  "/GUSTAVE.SNAPSHOT"
 
 #define FILTER_BITMAP_NAME "/GUSTAVE.BITMAP"
@@ -43,6 +45,7 @@ extern unsigned char *afl_area_ptr;
 extern unsigned int afl_inst_rms;
 
 extern uint8_t *mem_bitmap;
+extern uint8_t *snap_bitmap;
 
 void oracle_illegal_memory_access(void);
 #endif

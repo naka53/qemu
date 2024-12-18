@@ -326,3 +326,4 @@ DEF_HELPER_FLAGS_5(gvec_bitsel, TCG_CALL_NO_RWG, void, ptr, ptr, ptr, ptr, i32)
 
 DEF_HELPER_FLAGS_1(afl_maybe_log, TCG_CALL_NO_RWG, void, i64)
 DEF_HELPER_FLAGS_2(oracle_memory_access_log, TCG_CALL_NO_RWG, void, i64, i32)
+DEF_HELPER_FLAGS_1(afl_dirty_bitmap, TCG_CALL_NO_RWG, void, i64)

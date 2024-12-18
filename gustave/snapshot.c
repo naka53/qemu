@@ -12,6 +12,7 @@ static int temp_fd_reg;
 static char *temp_file_ram;
 #endif
 static int temp_fd_ram;
+static uint8_t *temp_map_ram;
 
 #ifdef SHARED_SNAPSHOT
 static void snapshot_shared_create(afl_t *afl) {
@@ -64,6 +65,11 @@ void afl_save_ram(afl_t *afl)
     temp_fd_ram = open((const char *)temp_file_ram, O_RDONLY);
 #endif
 
+    temp_map_ram = mmap(0, sram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE, temp_fd_ram, 0);
+
+    snap_bitmap = malloc(sram_size / PAGE_SIZE);
+    memset(snap_bitmap, 0, sram_size / PAGE_SIZE);
+
     afl_load_ram(afl);
 }
 
@@ -72,8 +78,11 @@ void afl_load_ram(afl_t *afl)
     uint8_t *sram_mem = memory_region_get_ram_ptr(afl->arch.ram_mr);
     size_t sram_size = memory_region_size(afl->arch.ram_mr);
 
-    munmap(sram_mem, sram_size);
-    mmap(sram_mem, sram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FIXED, temp_fd_ram, 0);  
+    for (int i = 0; i < sram_size / PAGE_SIZE; i++)
+        if (snap_bitmap[i])
+            memcpy((void *)(sram_mem + i * PAGE_SIZE), (void *)(temp_map_ram + i * PAGE_SIZE), PAGE_SIZE);
+    
+    memset(snap_bitmap, 0, sram_size / PAGE_SIZE);
 }
 
 void afl_save_reg(afl_t *afl) 
