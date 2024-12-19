@@ -100,7 +100,6 @@ __shm_create_failure:
 
 void afl_init_mem_bitmap(afl_t *afl)
 {
-    //shm_unlink(FILTER_BITMAP_NAME);
     int fd = shm_open(FILTER_BITMAP_NAME, O_RDONLY, S_IRUSR | S_IWUSR);
     if (fd < 0) {
         flt_bitmap_create(afl);
@@ -117,6 +116,10 @@ void afl_init_mem_bitmap(afl_t *afl)
     }
 
     mem_bitmap = (uint8_t*)mm;
+}
+
+void afl_bitmap_cleanup(afl_t *afl) {
+    shm_unlink(FILTER_BITMAP_NAME);
 }
 
 void oracle_illegal_memory_access(void) {

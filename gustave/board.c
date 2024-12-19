@@ -63,7 +63,8 @@ void afl_cleanup(afl_t *afl)
     if (afl->user_timer)
         timer_del(afl->user_timer);
 
-    //XXX: unmap(), shmdt() ...
+    afl_bitmap_cleanup(afl);
+    afl_snapshot_cleanup(afl);
 }
 
 void afl_init(afl_t *afl)
