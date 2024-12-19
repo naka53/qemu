@@ -29,7 +29,6 @@ void afl_init_snapshot(afl_t *afl) {
     temp_fd_reg = mkostemp(temp_file_reg, O_RDWR | O_CREAT | O_TRUNC);
 
 #ifdef SHARED_SNAPSHOT
-    shm_unlink(SHARED_SNAPSHOT_NAME);
     temp_fd_ram = shm_open(SHARED_SNAPSHOT_NAME, O_RDONLY, S_IRUSR | S_IWUSR);
     
     if (temp_fd_ram < 0)
@@ -37,6 +36,12 @@ void afl_init_snapshot(afl_t *afl) {
 #else
     temp_file_ram = g_strdup_printf("%s/vmst.ram.XXXXXX", g_get_tmp_dir());
     temp_fd_ram = mkostemp(temp_file_ram, O_RDWR | O_CREAT | O_TRUNC);
+#endif
+}
+
+void afl_snapshot_cleanup(afl_t *afl) {
+#ifdef SHARED_SNAPSHOT
+    shm_unlink(SHARED_SNAPSHOT_NAME);
 #endif
 }
 
