@@ -70,6 +70,7 @@
 #include "afl/instrumentation.h"
 #include "afl/hash.h"
 #include "tcg/tcg-op-common.h"
+#include "tcg/tcg-temp-internal.h"
 
 static unsigned char dummy[MAP_SIZE];
 unsigned char *afl_area_ptr = dummy;
@@ -90,8 +91,7 @@ static void afl_gen_trace(uint64_t cur_loc)
         concern. Phew. But instruction addresses may be aligned. Let's mangle
         the value to get something quasi-uniform. */
 
-    cur_loc = (uintptr_t)(afl_hash_ip(cur_loc));
-    cur_loc &= (MAP_SIZE - 1);
+    cur_loc = afl_hash_ip(cur_loc) & (MAP_SIZE - 1);
 
     /* Implement probabilistic instrumentation by looking at scrambled block
         address. This keeps the instrumented locations stable across runs. */
@@ -99,7 +99,10 @@ static void afl_gen_trace(uint64_t cur_loc)
     if (cur_loc >= afl_inst_rms) return;
 
     TCGv_i64 cur_loc_v = tcg_constant_i64(cur_loc);
+
     gen_helper_afl_maybe_log(cur_loc_v);
+    
+    tcg_temp_free_i64(cur_loc_v);
 }
 #endif
 

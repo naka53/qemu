@@ -35,6 +35,7 @@
 #include "afl/instrumentation.h"
 #include "hw/arm/afl_soc.h"
 #include "sysemu/runstate.h"
+#include "tcg/tcg-op-common.h"
 
 uint8_t *mem_bitmap;
 uint8_t *snap_bitmap;
@@ -71,6 +72,9 @@ static void oracle_gen_memory_access_log(TCGTemp *addr, MemOp memop) {
     TCGv_i32 size = tcg_constant_i32(memop_size(memop));
 
     gen_helper_oracle_memory_access_log(addr_v, size);
+    
+    tcg_temp_free_i64(addr_v);
+    tcg_temp_free_i32(size);
 }
 #endif
 

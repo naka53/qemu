@@ -10,7 +10,7 @@
 
 /* waitpid() status format */
 #define create_wait_status(code, signal)        \
-    (((int)code)<<8 | (int)(signal & 0x7f))
+    (((int)code) << 8 | (int)(signal & 0x7f))
 
 #define sts_abort()      create_wait_status(0, SIGABRT)
 #define sts_kill()       create_wait_status(0, SIGKILL)
