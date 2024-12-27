@@ -236,10 +236,6 @@ static void tcg_gen_qemu_ld_i32_int(TCGv_i32 val, TCGTemp *addr,
     TCGv_i64 copy_addr;
     TCGOpcode opc;
 
-#ifdef MEMORY_ACCESS_ORACLE
-    oracle_gen_memory_access_log(addr, memop);
-#endif
-
     tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);
     orig_memop = memop = tcg_canonicalize_memop(memop, 0, 0);
     orig_oi = oi = make_memop_idx(memop, idx);
@@ -261,6 +257,10 @@ static void tcg_gen_qemu_ld_i32_int(TCGv_i32 val, TCGTemp *addr,
     }
     gen_ldst(opc, tcgv_i32_temp(val), NULL, addr, oi);
     plugin_gen_mem_callbacks(copy_addr, addr, orig_oi, QEMU_PLUGIN_MEM_R);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 
     if ((orig_memop ^ memop) & MO_BSWAP) {
         switch (orig_memop & MO_SIZE) {
@@ -292,11 +292,6 @@ static void tcg_gen_qemu_st_i32_int(TCGv_i32 val, TCGTemp *addr,
     TCGv_i32 swap = NULL;
     MemOpIdx orig_oi, oi;
     TCGOpcode opc;
-
-#ifdef MEMORY_ACCESS_ORACLE
-    oracle_gen_memory_access_log(addr, memop);
-#endif
-    afl_gen_dirty_bitmap(addr, memop);
 
     tcg_gen_req_mo(TCG_MO_LD_ST | TCG_MO_ST_ST);
     memop = tcg_canonicalize_memop(memop, 0, 1);
@@ -335,6 +330,11 @@ static void tcg_gen_qemu_st_i32_int(TCGv_i32 val, TCGTemp *addr,
     gen_ldst(opc, tcgv_i32_temp(val), NULL, addr, oi);
     plugin_gen_mem_callbacks(NULL, addr, orig_oi, QEMU_PLUGIN_MEM_W);
 
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
+    afl_gen_dirty_bitmap(addr, memop);
+
     if (swap) {
         tcg_temp_free_i32(swap);
     }
@@ -355,10 +355,6 @@ static void tcg_gen_qemu_ld_i64_int(TCGv_i64 val, TCGTemp *addr,
     MemOpIdx orig_oi, oi;
     TCGv_i64 copy_addr;
     TCGOpcode opc;
-
-#ifdef MEMORY_ACCESS_ORACLE
-    oracle_gen_memory_access_log(addr, memop);
-#endif
 
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_ld_i32_int(TCGV_LOW(val), addr, idx, memop);
@@ -391,6 +387,10 @@ static void tcg_gen_qemu_ld_i64_int(TCGv_i64 val, TCGTemp *addr,
     }
     gen_ldst_i64(opc, val, addr, oi);
     plugin_gen_mem_callbacks(copy_addr, addr, orig_oi, QEMU_PLUGIN_MEM_R);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 
     if ((orig_memop ^ memop) & MO_BSWAP) {
         int flags = (orig_memop & MO_SIGN
@@ -426,11 +426,6 @@ static void tcg_gen_qemu_st_i64_int(TCGv_i64 val, TCGTemp *addr,
     TCGv_i64 swap = NULL;
     MemOpIdx orig_oi, oi;
     TCGOpcode opc;
-
-#ifdef MEMORY_ACCESS_ORACLE
-    oracle_gen_memory_access_log(addr, memop);
-#endif
-    afl_gen_dirty_bitmap(addr, memop);
 
     if (TCG_TARGET_REG_BITS == 32 && (memop & MO_SIZE) < MO_64) {
         tcg_gen_qemu_st_i32_int(TCGV_LOW(val), addr, idx, memop);
@@ -468,6 +463,11 @@ static void tcg_gen_qemu_st_i64_int(TCGv_i64 val, TCGTemp *addr,
     }
     gen_ldst_i64(opc, val, addr, oi);
     plugin_gen_mem_callbacks(NULL, addr, orig_oi, QEMU_PLUGIN_MEM_W);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
+    afl_gen_dirty_bitmap(addr, memop);
 
     if (swap) {
         tcg_temp_free_i64(swap);
@@ -580,10 +580,6 @@ static void tcg_gen_qemu_ld_i128_int(TCGv_i128 val, TCGTemp *addr,
     TCGv_i64 ext_addr = NULL;
     TCGOpcode opc;
 
-#ifdef MEMORY_ACCESS_ORACLE
-    oracle_gen_memory_access_log(addr, memop);
-#endif
-
     check_max_alignment(get_alignment_bits(memop));
     tcg_gen_req_mo(TCG_MO_LD_LD | TCG_MO_ST_LD);
 
@@ -682,6 +678,10 @@ static void tcg_gen_qemu_ld_i128_int(TCGv_i128 val, TCGTemp *addr,
     }
 
     plugin_gen_mem_callbacks(ext_addr, addr, orig_oi, QEMU_PLUGIN_MEM_R);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
 }
 
 void tcg_gen_qemu_ld_i128_chk(TCGv_i128 val, TCGTemp *addr, TCGArg idx,
@@ -699,11 +699,6 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
     MemOpIdx orig_oi;
     TCGv_i64 ext_addr = NULL;
     TCGOpcode opc;
-
-#ifdef MEMORY_ACCESS_ORACLE
-    oracle_gen_memory_access_log(addr, memop);
-#endif
-    afl_gen_dirty_bitmap(addr, memop);
 
     check_max_alignment(get_alignment_bits(memop));
     tcg_gen_req_mo(TCG_MO_ST_LD | TCG_MO_ST_ST);
@@ -803,6 +798,11 @@ static void tcg_gen_qemu_st_i128_int(TCGv_i128 val, TCGTemp *addr,
     }
 
     plugin_gen_mem_callbacks(ext_addr, addr, orig_oi, QEMU_PLUGIN_MEM_W);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(addr, memop);
+#endif
+    afl_gen_dirty_bitmap(addr, memop);
 }
 
 void tcg_gen_qemu_st_i128_chk(TCGv_i128 val, TCGTemp *addr, TCGArg idx,
