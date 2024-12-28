@@ -186,39 +186,47 @@ static void afl_map_shm_fuzz(afl_t *afl) {
 
 void afl_forkserver(afl_t *afl) 
 {
-    uint32_t requested_features = 0;
-    uint32_t supported_features = 0;
+    uint32_t features = 0;
+    uint32_t status = 0;
 
-    if (MAP_SIZE <= FS_OPT_MAX_MAPSIZE)
-        requested_features |= (FS_OPT_SET_MAPSIZE(MAP_SIZE) | FS_OPT_MAPSIZE);
-
-    requested_features |= FS_OPT_ENABLED;
-    requested_features |= FS_OPT_SHDMEM_FUZZ;
+    status |= FORKSERVER_VERSION;
 
     /* Tell the parent that we're alive. */
-    if (write(FORKSRV_STATUS_FD, &requested_features, 4) != 4) {
+    if (write(FORKSRV_STATUS_FD, &status, 4) != 4) {
         fprintf(stderr, "not able to send requested features\n");
         exit(EXIT_FAILURE);
     }
-    if (read(FORKSRV_CONTROL_FD, &supported_features, 4) != 4) {
+    if (read(FORKSRV_CONTROL_FD, &status, 4) != 4) {
         fprintf(stderr, "not able to get supported features\n");
         exit(EXIT_FAILURE);
     }
 
-    if ((supported_features & (FS_OPT_ENABLED | FS_OPT_SHDMEM_FUZZ)) ==
-        (FS_OPT_ENABLED | FS_OPT_SHDMEM_FUZZ))
-      afl_map_shm_fuzz(afl);
-    else {
-      fprintf(stderr, "afl-fuzz is old and does not support shmem input\n");
-      exit(EXIT_FAILURE);
+    if (status != (FORKSERVER_VERSION ^ 0xFFFFFFFF)) {
+        fprintf(stderr, "not able to synchronize forkserver version\n");
+        exit(EXIT_FAILURE);
     }
+
+    features |= FS_NEW_OPT_SHDMEM_FUZZ;
+
+    /* Tell the parent that we're alive. */
+    if (write(FORKSRV_STATUS_FD, &features, 4) != 4) {
+        fprintf(stderr, "not able to send requested features\n");
+        exit(EXIT_FAILURE);
+    }
+
+    status = FORKSERVER_VERSION;
+
+    if (write(FORKSRV_STATUS_FD, &status, 4) != 4) {
+        fprintf(stderr, "not able to finalize synchronization forkserver\n");
+        exit(EXIT_FAILURE);
+    }
+
+    afl_map_shm_fuzz(afl);
 
     afl_remove_breakpoint(afl, afl->config.tgt.fork);
 
     afl->vm_exit = afl->config.tgt.start;
     afl_insert_breakpoint(afl, afl->config.tgt.start);
-
-    tb_flush(CPU(afl->arch.cpu));
 
     vm_start();
 }
@@ -309,7 +317,7 @@ static void async_panic_vm(CPUState *cpu, run_on_cpu_data data)
 void afl_vm_state_change(void *opaque, bool running, RunState state)
 {
     afl_t    *afl = (afl_t*)opaque;
-    CPUState *cpu = CPU(afl->arch.cpu);
+    //CPUState *cpu = CPU(afl->arch.cpu);
 
     if (running || state == RUN_STATE_PAUSED) {
         return;
