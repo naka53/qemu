@@ -317,7 +317,7 @@ static void async_panic_vm(CPUState *cpu, run_on_cpu_data data)
 void afl_vm_state_change(void *opaque, bool running, RunState state)
 {
     afl_t    *afl = (afl_t*)opaque;
-    //CPUState *cpu = CPU(afl->arch.cpu);
+    CPUState *cpu = CPU(afl->arch.cpu);
 
     if (running || state == RUN_STATE_PAUSED) {
         return;
