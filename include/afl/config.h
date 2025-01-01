@@ -3,7 +3,7 @@
 
 #define GUSTAVE_ACTIVATED
 #define AFL_ACTIVATED
-//#define MEMORY_ACCESS_ORACLE
+#define MEMORY_ACCESS_ORACLE
 //#define SHARED_SNAPSHOT
 
 #endif
