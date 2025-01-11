@@ -15,6 +15,8 @@ OBJECT_DECLARE_SIMPLE_TYPE(AFLMachineState, AFL_SOC)
 
 #define AFL_IRQ_NUMBER         1
 
+#define CPUCLK_FRQ (180 * 1000 * 1000)
+
 struct AFLMachineState {
    SysBusDevice parent_obj;
 
@@ -23,8 +25,7 @@ struct AFLMachineState {
    MemoryRegion sram;
    MemoryRegion rom;
 
-   Clock *sysclk;
-   Clock *refclk;
+   Clock *cpuclk;
 };
 
 // __AFL_SOC_H__

@@ -17,8 +17,8 @@ static void afl_soc_initfn(Object *obj)
 
     object_initialize_child(OBJECT(s), "armv7m", &s->armv7m, TYPE_ARMV7M);
     
-    s->sysclk = qdev_init_clock_in(DEVICE(s), "sysclk", NULL, NULL, 0);
-    s->refclk = qdev_init_clock_in(DEVICE(s), "refclk", NULL, NULL, 0);
+	s->cpuclk = clock_new(OBJECT(s), "CPUCLK");
+    clock_set_hz(s->cpuclk, CPUCLK_FRQ);
 }
 
 static void afl_soc_realize(DeviceState *dev, Error **errp)
@@ -38,8 +38,7 @@ static void afl_soc_realize(DeviceState *dev, Error **errp)
 	qdev_prop_set_string(armv7m, "cpu-type", ARM_CPU_TYPE_NAME("cortex-m3"));
 	qdev_prop_set_uint32(armv7m, "data-endianness", 0);
 	qdev_prop_set_bit(armv7m, "enable-bitband", true);
-	qdev_connect_clock_in(armv7m, "cpuclk", s->sysclk);
-	qdev_connect_clock_in(armv7m, "refclk", s->refclk);
+	qdev_connect_clock_in(armv7m, "cpuclk", s->cpuclk);
 	object_property_set_link(OBJECT(&s->armv7m), "memory", OBJECT(sys_mem), &error_abort);
 	sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), &error_fatal);
 
