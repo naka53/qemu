@@ -6,6 +6,7 @@
 #include "hw/qdev-properties.h"
 #include "hw/qdev-clock.h"
 #include "hw/arm/afl_soc.h"
+#include "hw/arm/afl_timer.h"
 
 #include "afl/config.h"
 #include "afl/common.h"
@@ -16,6 +17,7 @@ static void afl_soc_initfn(Object *obj)
     AFLMachineState *s = AFL_SOC(obj);
 
     object_initialize_child(OBJECT(s), "armv7m", &s->armv7m, TYPE_ARMV7M);
+	object_initialize_child(OBJECT(s), "timer", &s->timer, TYPE_AFL_TIMER);
     
 	s->cpuclk = clock_new(OBJECT(s), "CPUCLK");
     clock_set_hz(s->cpuclk, CPUCLK_FRQ);
@@ -26,6 +28,7 @@ static void afl_soc_realize(DeviceState *dev, Error **errp)
 	AFLMachineState *s = AFL_SOC(dev);
 	DeviceState *armv7m;
 	MemoryRegion *sys_mem = get_system_memory();
+	SysBusDevice *busdev;
 
 	memory_region_init_rom(&s->rom, OBJECT(dev), "ROM", AFL_ROM_SIZE, &error_fatal);
 	memory_region_add_subregion(sys_mem, AFL_ROM_BASE_ADDR, &s->rom);
@@ -41,6 +44,12 @@ static void afl_soc_realize(DeviceState *dev, Error **errp)
 	qdev_connect_clock_in(armv7m, "cpuclk", s->cpuclk);
 	object_property_set_link(OBJECT(&s->armv7m), "memory", OBJECT(sys_mem), &error_abort);
 	sysbus_realize(SYS_BUS_DEVICE(&s->armv7m), &error_fatal);
+
+	qdev_connect_clock_in(DEVICE(&s->timer), "cpuclk", s->cpuclk);
+	sysbus_realize(SYS_BUS_DEVICE(&s->timer), errp);
+	busdev = SYS_BUS_DEVICE(&s->timer);
+	sysbus_mmio_map(busdev, 0, AFL_TIMER_BASE_ADDR);
+	sysbus_connect_irq(busdev, 0, qdev_get_gpio_in(armv7m, 0));
 
 #ifdef GUSTAVE_ACTIVATED
 	afl = (afl_t *)g_new0(afl_t, 1);

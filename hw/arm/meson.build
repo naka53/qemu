@@ -62,6 +62,7 @@ arm_ss.add(when: 'CONFIG_NRF51_SOC', if_true: files('nrf51_soc.c'))
 arm_ss.add(when: 'CONFIG_XEN', if_true: files('xen_arm.c'))
 arm_ss.add(when: 'CONFIG_AFL', if_true: files('afl_soc.c'))
 arm_ss.add(when: 'CONFIG_AFL_BOARD', if_true: files('afl_board.c'))
+arm_ss.add(when: 'CONFIG_AFL_BOARD', if_true: files('afl_timer.c'))
 
 system_ss.add(when: 'CONFIG_ARM_SMMUV3', if_true: files('smmu-common.c'))
 system_ss.add(when: 'CONFIG_CHEETAH', if_true: files('palm.c'))

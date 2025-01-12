@@ -2,6 +2,7 @@
 #define __AFL_SOC_H__
 
 #include "hw/arm/armv7m.h"
+#include "hw/arm/afl_timer.h"
 #include "qom/object.h"
 #include "hw/clock.h"
 
@@ -21,6 +22,7 @@ struct AFLMachineState {
    SysBusDevice parent_obj;
 
    ARMv7MState armv7m;
+   AFLTimerState timer;
 
    MemoryRegion sram;
    MemoryRegion rom;
