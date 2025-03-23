@@ -37,6 +37,10 @@ static void afl_setup(afl_t *afl)
         if (inst_r) afl_area_ptr[0] = 1;
     }
 
+    afl->euid = geteuid();
+    afl->pid  = getpid();
+    afl->ppid = getppid();
+
     afl->user_timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
                                    afl_user_timeout_cb, afl);
 }
