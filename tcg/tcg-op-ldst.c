@@ -37,10 +37,14 @@
 #include "tcg/tcg-op-common.h"
 
 uint8_t *mem_bitmap;
+uint8_t fuzzing_started = 0;
 
 void HELPER(oracle_memory_access_log)(uint64_t addr, uint32_t size) {
     size_t q = addr / 8;
     size_t r = addr % 8;
+
+    if (!fuzzing_started)
+        return;
 
     while(size--) {
         if ((mem_bitmap[q] & (1 << r)) == 0)

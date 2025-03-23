@@ -55,6 +55,7 @@ extern unsigned char *afl_area_ptr;
 extern unsigned int afl_inst_rms;
 
 extern uint8_t *mem_bitmap;
+extern uint8_t fuzzing_started;
 
 void oracle_illegal_memory_access(void);
 #endif
