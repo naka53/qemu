@@ -42,12 +42,7 @@ static void afl_reload_forward(afl_t *afl)
  */
 static void afl_flash_forward(afl_t *afl)
 {
-    int child_pid = 1;
-    if (write(FORKSRV_STATUS_FD, &child_pid, 4) != 4) {
-        fprintf(stderr, "can't write fast pid to afl\n");
-        exit(EXIT_FAILURE);
-    }
-
+    afl_forward_child(afl);
     afl->status = sts_exit(EXIT_FAILURE);
     afl_forward_status(afl);
 }
@@ -242,6 +237,8 @@ void afl_persistent(afl_t *afl)
     if (first_execution) {
         first_execution = false;
 
+        fuzzing_started = 1;
+
         memset(afl_area_ptr, 0, MAP_SIZE);
         afl_area_ptr[0] = 1;
         afl_prev_loc = 0;
@@ -254,7 +251,7 @@ void afl_persistent(afl_t *afl)
 }
 
 void afl_persistent_return(afl_t *afl) 
-{
+{   
     afl->status = sts_exit(EXIT_FAILURE);
     afl_reload_forward(afl);
 }
