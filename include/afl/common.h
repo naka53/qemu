@@ -57,6 +57,7 @@ typedef struct afl_t {
 extern afl_t *__global_afl;
 
 void afl_cleanup(afl_t *);
+void afl_snapshot_cleanup(afl_t *);
 void afl_init(afl_t *);
 void afl_init_conf(afl_t *);
 void afl_init_snapshot(afl_t *);

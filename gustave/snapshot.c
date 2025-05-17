@@ -1,5 +1,6 @@
 #include "afl/config.h"
 #include "afl/common.h"
+#include "afl/instrumentation.h"
 
 #include "io/channel-file.h"
 #include "migration/qemu-file.h"
@@ -8,15 +9,41 @@
 static char *temp_file_reg;
 static int temp_fd_reg;
 
+#ifndef SHARED_SNAPSHOT
 static char *temp_file_ram;
+#endif
 static int temp_fd_ram;
+
+#ifdef SHARED_SNAPSHOT
+static void snapshot_shared_create(afl_t *afl) {
+    temp_fd_ram = shm_open(SHARED_SNAPSHOT_NAME, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+
+    if (temp_fd_ram < 0) {
+        fprintf(stderr, "can't create shared snapshot SHM\n");
+        exit(EXIT_FAILURE);
+    }
+}
+#endif
 
 void afl_init_snapshot(afl_t *afl) {
     temp_file_reg = g_strdup_printf("%s/vmst.reg.XXXXXX", g_get_tmp_dir());
     temp_fd_reg = mkostemp(temp_file_reg, O_RDWR | O_CREAT | O_TRUNC);
 
+#ifdef SHARED_SNAPSHOT
+    temp_fd_ram = shm_open(SHARED_SNAPSHOT_NAME, O_RDONLY, S_IRUSR | S_IWUSR);
+    
+    if (temp_fd_ram < 0)
+        snapshot_shared_create(afl);
+#else
     temp_file_ram = g_strdup_printf("%s/vmst.ram.XXXXXX", g_get_tmp_dir());
     temp_fd_ram = mkostemp(temp_file_ram, O_RDWR | O_CREAT | O_TRUNC);
+#endif
+}
+
+void afl_snapshot_cleanup(afl_t *afl) {
+#ifdef SHARED_SNAPSHOT
+    shm_unlink(SHARED_SNAPSHOT_NAME);
+#endif
 }
 
 void afl_save_ram(afl_t *afl)
@@ -37,7 +64,11 @@ void afl_save_ram(afl_t *afl)
     munmap(map, sram_size);
     close(temp_fd_ram);
 
+#ifdef SHARED_SNAPSHOT
+    temp_fd_ram = shm_open(SHARED_SNAPSHOT_NAME, O_RDONLY, S_IRUSR | S_IWUSR);
+#else
     temp_fd_ram = open((const char *)temp_file_ram, O_RDONLY);
+#endif
 
     afl_load_ram(afl);
 }
