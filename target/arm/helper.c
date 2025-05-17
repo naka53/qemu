@@ -12708,6 +12708,10 @@ void cpu_get_tb_cpu_state(CPUARMState *env, vaddr *pc,
             if (mve_no_pred(env)) {
                 DP_TBFLAG_M32(flags, MVE_NO_PRED, 1);
             }
+
+            if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK) {
+              DP_TBFLAG_ANY(flags, BE_DATA, 1);
+            }
         } else {
             /*
              * Note that XSCALE_CPAR shares bits with VECSTRIDE.

@@ -255,8 +255,12 @@ static bool v7m_stack_write(ARMCPU *cpu, uint32_t addr, uint32_t value,
         }
         goto pend_fault;
     }
-    address_space_stl_le(arm_addressspace(cs, res.f.attrs), res.f.phys_addr,
-                         value, res.f.attrs, &txres);
+    if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+        address_space_stl_be(arm_addressspace(cs, res.f.attrs), res.f.phys_addr,
+                        value, res.f.attrs, &txres);
+    else
+        address_space_stl_le(arm_addressspace(cs, res.f.attrs), res.f.phys_addr,
+                            value, res.f.attrs, &txres);
     if (txres != MEMTX_OK) {
         /* BusFault trying to write the data */
         if (mode == STACK_LAZYFP) {
@@ -330,8 +334,12 @@ static bool v7m_stack_read(ARMCPU *cpu, uint32_t *dest, uint32_t addr,
         goto pend_fault;
     }
 
-    value = address_space_ldl(arm_addressspace(cs, res.f.attrs),
-                              res.f.phys_addr, res.f.attrs, &txres);
+    if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+        value = address_space_ldl_be(arm_addressspace(cs, res.f.attrs),
+                                res.f.phys_addr, res.f.attrs, &txres);
+    else
+        value = address_space_ldl(arm_addressspace(cs, res.f.attrs),
+                                res.f.phys_addr, res.f.attrs, &txres);
     if (txres != MEMTX_OK) {
         /* BusFault trying to read the data */
         qemu_log_mask(CPU_LOG_INT, "...BusFault with BFSR.UNSTKERR\n");
@@ -633,8 +641,13 @@ void HELPER(v7m_blxns)(CPUARMState *env, uint32_t dest)
     }
 
     /* Note that these stores can throw exceptions on MPU faults */
-    cpu_stl_data_ra(env, sp, nextinst, GETPC());
-    cpu_stl_data_ra(env, sp + 4, saved_psr, GETPC());
+    if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK) {
+        cpu_stl_be_data_ra(env, sp, nextinst, GETPC());
+        cpu_stl_be_data_ra(env, sp + 4, saved_psr, GETPC());
+    } else {
+        cpu_stl_data_ra(env, sp, nextinst, GETPC());
+        cpu_stl_data_ra(env, sp + 4, saved_psr, GETPC());
+    }
 
     env->regs[13] = sp;
     env->regs[14] = 0xfeffffff;
@@ -699,8 +712,12 @@ static bool arm_v7m_load_vector(ARMCPU *cpu, int exc, bool targets_secure,
         }
     }
 
-    vector_entry = address_space_ldl(arm_addressspace(cs, attrs), addr,
-                                     attrs, &result);
+    if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+        vector_entry = address_space_ldl_be(arm_addressspace(cs, attrs), addr,
+                                        attrs, &result);
+    else
+        vector_entry = address_space_ldl(arm_addressspace(cs, attrs), addr,
+                                        attrs, &result);
     if (result != MEMTX_OK) {
         /*
          * Underlying exception is BusFault: its target security state
@@ -1090,12 +1107,23 @@ void HELPER(v7m_vlstm)(CPUARMState *env, uint32_t fptr)
             if (i >= 16) {
                 faddr += 8; /* skip the slot for the FPSCR */
             }
-            cpu_stl_data_ra(env, faddr, slo, ra);
-            cpu_stl_data_ra(env, faddr + 4, shi, ra);
+            if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK) {
+                cpu_stl_be_data_ra(env, faddr + 4, slo, ra);
+                cpu_stl_be_data_ra(env, faddr, shi, ra);
+            } else {
+                cpu_stl_data_ra(env, faddr, slo, ra);
+                cpu_stl_data_ra(env, faddr + 4, shi, ra);
+            }
         }
-        cpu_stl_data_ra(env, fptr + 0x40, vfp_get_fpscr(env), ra);
+        if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+            cpu_stl_be_data_ra(env, fptr + 0x40, vfp_get_fpscr(env), ra);
+        else
+            cpu_stl_data_ra(env, fptr + 0x40, vfp_get_fpscr(env), ra);
         if (cpu_isar_feature(aa32_mve, cpu)) {
-            cpu_stl_data_ra(env, fptr + 0x44, env->v7m.vpr, ra);
+            if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+                cpu_stl_be_data_ra(env, fptr + 0x44, env->v7m.vpr, ra);
+            else
+                cpu_stl_data_ra(env, fptr + 0x44, env->v7m.vpr, ra);
         }
 
         /*
@@ -1156,16 +1184,27 @@ void HELPER(v7m_vlldm)(CPUARMState *env, uint32_t fptr)
                 faddr += 8; /* skip the slot for the FPSCR and VPR */
             }
 
-            slo = cpu_ldl_data_ra(env, faddr, ra);
-            shi = cpu_ldl_data_ra(env, faddr + 4, ra);
+            if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK) {
+                slo = cpu_ldl_be_data_ra(env, faddr + 4, ra);
+                shi = cpu_ldl_be_data_ra(env, faddr, ra);
+            } else {
+                slo = cpu_ldl_data_ra(env, faddr, ra);
+                shi = cpu_ldl_data_ra(env, faddr + 4, ra);
+            }
 
             dn = (uint64_t) shi << 32 | slo;
             *aa32_vfp_dreg(env, i / 2) = dn;
         }
-        fpscr = cpu_ldl_data_ra(env, fptr + 0x40, ra);
+        if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+            fpscr = cpu_ldl_be_data_ra(env, fptr + 0x40, ra);
+        else
+            fpscr = cpu_ldl_data_ra(env, fptr + 0x40, ra);
         vfp_set_fpscr(env, fpscr);
         if (cpu_isar_feature(aa32_mve, cpu)) {
-            env->v7m.vpr = cpu_ldl_data_ra(env, fptr + 0x44, ra);
+            if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+                env->v7m.vpr = cpu_ldl_be_data_ra(env, fptr + 0x44, ra);
+            else
+                env->v7m.vpr = cpu_ldl_data_ra(env, fptr + 0x44, ra);
         }
     }
 
@@ -2063,8 +2102,12 @@ static bool v7m_read_sg_stack_word(ARMCPU *cpu, ARMMMUIdx mmu_idx,
         }
         return false;
     }
-    value = address_space_ldl(arm_addressspace(cs, res.f.attrs),
-                              res.f.phys_addr, res.f.attrs, &txres);
+    if (env->v7m.aircr & R_V7M_AIRCR_ENDIANNESS_MASK)
+        value = address_space_ldl_be(arm_addressspace(cs, res.f.attrs),
+                                res.f.phys_addr, res.f.attrs, &txres);
+    else
+        value = address_space_ldl(arm_addressspace(cs, res.f.attrs),
+                                res.f.phys_addr, res.f.attrs, &txres);
     if (txres != MEMTX_OK) {
         /* BusFault trying to read the data */
         qemu_log_mask(CPU_LOG_INT,

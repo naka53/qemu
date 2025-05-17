@@ -104,6 +104,7 @@ struct ARMv7MState {
     uint32_t init_nsvtor;
     uint32_t mpu_ns_regions;
     uint32_t mpu_s_regions;
+    uint32_t endianness;
     bool enable_bitband;
     bool start_powered_off;
     bool vfp;

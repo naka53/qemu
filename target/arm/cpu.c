@@ -415,6 +415,9 @@ static void arm_cpu_reset_hold(Object *obj, ResetType type)
             env->v7m.nsacr = 0xcff;
         }
 
+        if (cpu->endianness)
+            env->v7m.aircr |= R_V7M_AIRCR_ENDIANNESS_MASK;
+
         /* In v7M the reset value of this bit is IMPDEF, but ARM recommends
          * that it resets to 1, so QEMU always does that rather than making
          * it dependent on CPU model. In v8M it is RES1.
@@ -451,16 +454,26 @@ static void arm_cpu_reset_hold(Object *obj, ResetType type)
             /* Address zero is covered by ROM which hasn't yet been
              * copied into physical memory.
              */
-            initial_msp = ldl_p(rom);
-            initial_pc = ldl_p(rom + 4);
+            if (arm_feature(env, ARM_FEATURE_M) && (cpu->endianness)) {
+                initial_msp = ldl_be_p(rom);
+                initial_pc = ldl_be_p(rom + 4);
+            } else {
+                initial_msp = ldl_p(rom);
+                initial_pc = ldl_p(rom + 4);
+            }
         } else {
             /* Address zero not covered by a ROM blob, or the ROM blob
              * is in non-modifiable memory and this is a second reset after
              * it got copied into memory. In the latter case, rom_ptr
              * will return a NULL pointer and we should use ldl_phys instead.
              */
-            initial_msp = ldl_phys(cs->as, vecbase);
-            initial_pc = ldl_phys(cs->as, vecbase + 4);
+            if (arm_feature(env, ARM_FEATURE_M) && (cpu->endianness)) {
+                initial_msp = ldl_be_phys(cs->as, vecbase);
+                initial_pc = ldl_be_phys(cs->as, vecbase + 4);
+            } else {
+                initial_msp = ldl_phys(cs->as, vecbase);
+                initial_pc = ldl_phys(cs->as, vecbase + 4);
+            }
         }
 
         qemu_log_mask(CPU_LOG_INT,
@@ -1849,6 +1862,12 @@ void arm_cpu_post_init(Object *obj)
          */
         object_property_add_uint32_ptr(obj, "init-nsvtor",
                                        &cpu->init_nsvtor,
+                                       OBJ_PROP_FLAG_READWRITE);
+        /*
+         * Initial value of the memory system endianness
+         */
+        object_property_add_uint32_ptr(obj, "endianness",
+                                       &cpu->endianness,
                                        OBJ_PROP_FLAG_READWRITE);
     }
 

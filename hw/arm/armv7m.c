@@ -322,6 +322,12 @@ static void armv7m_realize(DeviceState *dev, Error **errp)
             return;
         }
     }
+    if (object_property_find(OBJECT(s->cpu), "endianness")) {
+        if (!object_property_set_uint(OBJECT(s->cpu), "endianness",
+                                      s->endianness, errp)) {
+            return;
+        }
+    }
     if (object_property_find(OBJECT(s->cpu), "vfp")) {
         if (!object_property_set_bool(OBJECT(s->cpu), "vfp", s->vfp, errp)) {
             return;
@@ -545,6 +551,7 @@ static Property armv7m_properties[] = {
     DEFINE_PROP_LINK("idau", ARMv7MState, idau, TYPE_IDAU_INTERFACE, Object *),
     DEFINE_PROP_UINT32("init-svtor", ARMv7MState, init_svtor, 0),
     DEFINE_PROP_UINT32("init-nsvtor", ARMv7MState, init_nsvtor, 0),
+    DEFINE_PROP_UINT32("endianness", ARMv7MState, endianness, MO_LE),
     DEFINE_PROP_BOOL("enable-bitband", ARMv7MState, enable_bitband, false),
     DEFINE_PROP_BOOL("start-powered-off", ARMv7MState, start_powered_off,
                      false),
