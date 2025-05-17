@@ -172,3 +172,25 @@ void HELPER(afl_persistent_return_routine)(void) {
 void HELPER(afl_panic_return_routine)(void) {
     afl_panic_return(__global_afl);
 }
+
+bool fuzzing_started = false;
+
+uint32_t HELPER(oracle_memory_access_log)(uint32_t addr, uint32_t size) {
+    size_t q = addr / 8;
+    size_t r = addr % 8;
+
+    if (!fuzzing_started)
+        return 0;
+
+    while(size--) {
+        if ((mem_bitmap[q] & (1 << r)) == 0)
+            return 1;
+
+        if (++r > 7) {
+            r = 0;
+            q++;
+        }
+    }
+
+    return 0;
+}

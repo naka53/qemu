@@ -913,6 +913,25 @@ MemOp pow2_align(unsigned i)
     return mop_align[i];
 }
 
+#ifdef MEMORY_ACCESS_ORACLE
+/* Generates TCG code for AFL's oracle memory access instrumentation. */
+static void oracle_gen_memory_access_log(DisasContext *s, TCGv addr, MemOp memop) {
+    TCGv_i32 size = tcg_constant_i32(memop_size(memop));
+    TCGv_i32 ret = tcg_temp_new_i32();
+    DisasLabel skipexc = gen_disas_label(s);
+
+    gen_helper_oracle_memory_access_log(ret, addr, size);
+    tcg_gen_brcondi_i32(TCG_COND_EQ, ret, 0, skipexc.label);
+    gen_helper_afl_panic_return_routine();
+    gen_update_pc(s, (__global_afl->config.tgt.persistent & ~1) - s->pc_curr);
+    tcg_gen_lookup_and_goto_ptr();
+    set_disas_label(s, skipexc);
+
+    tcg_temp_free_i32(size);
+    tcg_temp_free_i32(ret);
+}
+#endif
+
 /*
  * Abstractions of "generate code to do a guest load/store for
  * AArch32", where a vaddr is always 32 bits (and is zero
@@ -943,6 +962,10 @@ void gen_aa32_ld_internal_i32(DisasContext *s, TCGv_i32 val,
 {
     TCGv addr = gen_aa32_addr(s, a32, opc);
     tcg_gen_qemu_ld_i32(val, addr, index, opc);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(s, addr, opc);
+#endif
 }
 
 void gen_aa32_st_internal_i32(DisasContext *s, TCGv_i32 val,
@@ -950,6 +973,10 @@ void gen_aa32_st_internal_i32(DisasContext *s, TCGv_i32 val,
 {
     TCGv addr = gen_aa32_addr(s, a32, opc);
     tcg_gen_qemu_st_i32(val, addr, index, opc);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(s, addr, opc);
+#endif
 }
 
 void gen_aa32_ld_internal_i64(DisasContext *s, TCGv_i64 val,
@@ -963,6 +990,10 @@ void gen_aa32_ld_internal_i64(DisasContext *s, TCGv_i64 val,
     if (!IS_USER_ONLY && s->sctlr_b && (opc & MO_SIZE) == MO_64) {
         tcg_gen_rotri_i64(val, val, 32);
     }
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(s, addr, opc);
+#endif
 }
 
 void gen_aa32_st_internal_i64(DisasContext *s, TCGv_i64 val,
@@ -978,6 +1009,10 @@ void gen_aa32_st_internal_i64(DisasContext *s, TCGv_i64 val,
     } else {
         tcg_gen_qemu_st_i64(val, addr, index, opc);
     }
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(s, addr, opc);
+#endif
 }
 
 void gen_aa32_ld_i32(DisasContext *s, TCGv_i32 val, TCGv_i32 a32,
@@ -3295,9 +3330,17 @@ static void gen_load_exclusive(DisasContext *s, int rt, int rt2,
             tcg_gen_extr_i64_i32(tmp, tmp2, t64);
         }
         store_reg(s, rt2, tmp2);
+
+#ifdef MEMORY_ACCESS_ORACLE
+        oracle_gen_memory_access_log(s, taddr, opc);
+#endif
     } else {
         gen_aa32_ld_i32(s, tmp, addr, get_mem_index(s), opc);
         tcg_gen_extu_i32_i64(cpu_exclusive_val, tmp);
+
+#ifdef MEMORY_ACCESS_ORACLE
+        oracle_gen_memory_access_log(s, addr, opc);
+#endif
     }
 
     store_reg(s, rt, tmp);
@@ -3373,6 +3416,10 @@ static void gen_store_exclusive(DisasContext *s, int rd, int rt, int rt2,
     tcg_gen_movi_i32(cpu_R[rd], 1);
     gen_set_label(done_label);
     tcg_gen_movi_i64(cpu_exclusive_addr, -1);
+
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(s, taddr, opc);
+#endif
 }
 
 /* gen_srs:
@@ -5277,6 +5324,10 @@ static bool op_swp(DisasContext *s, arg_SWP *a, MemOp opc)
     tcg_gen_atomic_xchg_i32(tmp, taddr, tmp, get_mem_index(s), opc);
 
     store_reg(s, a->rt, tmp);
+    
+#ifdef MEMORY_ACCESS_ORACLE
+    oracle_gen_memory_access_log(s, taddr, opc);
+#endif
     return true;
 }
 

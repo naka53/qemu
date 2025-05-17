@@ -3,6 +3,10 @@
 
 #define SHARED_SNAPSHOT_NAME  "/GUSTAVE.SNAPSHOT"
 
+#define FILTER_BITMAP_NAME "/GUSTAVE.BITMAP"
+#define FILTER_BITMAP_SIZE (1 << 29)
+#define FLT_RNG_ENTRY_SZ   (sizeof(target_ulong) * 2)
+
 #define MAP_SIZE_POW2 16
 #define MAP_SIZE (1U << MAP_SIZE_POW2)
 
@@ -49,5 +53,8 @@
 extern __thread uint64_t afl_prev_loc;
 extern unsigned char *afl_area_ptr;
 extern unsigned int afl_inst_rms;
+
+extern uint8_t *mem_bitmap;
+extern bool fuzzing_started;
 
 #endif

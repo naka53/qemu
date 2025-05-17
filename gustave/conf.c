@@ -76,6 +76,8 @@ static void afl_map_obj_conf(afl_t *afl, QDict *json)
 {
     afl->config.qemu.timeout = qnum_get_int(
         afl_conf_obj(json,"user-timeout",QTYPE_QNUM,QNum));
+    afl->config.qemu.mm_ranges = qstring_get_str(
+        afl_conf_obj(json,"vm-mem-ranges",QTYPE_QSTRING,QString));
     afl->config.tgt.forkserver = qnum_get_uint(
         afl_conf_obj(json,"vm-forkserver",QTYPE_QNUM,QNum));
     afl->config.tgt.persistent = qnum_get_uint(

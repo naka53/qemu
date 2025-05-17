@@ -121,6 +121,7 @@ void afl_persistent(afl_t *afl)
         afl_save_reg(afl);
     
         snapshot_saved = true;
+        fuzzing_started = true;
     } else {
         afl_load_reg(afl);
         afl_load_ram(afl);

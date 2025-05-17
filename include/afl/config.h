@@ -3,5 +3,6 @@
 
 #define AFL_ACTIVATED
 #define SHARED_SNAPSHOT
+#define MEMORY_ACCESS_ORACLE
 
 #endif

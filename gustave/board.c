@@ -48,6 +48,7 @@ void afl_cleanup(afl_t *afl)
     if (afl->user_timer)
         timer_del(afl->user_timer);
 
+    afl_bitmap_cleanup(afl);
     afl_snapshot_cleanup(afl);
 }
 
@@ -56,6 +57,9 @@ void afl_init(afl_t *afl)
     afl_setup(afl);
     afl_init_conf(afl);
     afl_init_snapshot(afl);
+#ifdef MEMORY_ACCESS_ORACLE
+    afl_init_mem_bitmap(afl);
+#endif
 
     qemu_add_vm_change_state_handler(afl_vm_state_change, (void*)afl);
 }

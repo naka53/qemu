@@ -22,6 +22,7 @@ typedef struct afl_configuration
     /* QEMU / AFL interaction information */
     struct __afl_qemu_conf {
         int64_t     timeout;              	/* AFL cmd line user time out in ms */
+        const char  *mm_ranges;           /* binary memory ranges file path */
     } qemu;
 
     /* Virtual Machine (Target) partition information */
@@ -57,9 +58,11 @@ typedef struct afl_t {
 extern afl_t *__global_afl;
 
 void afl_cleanup(afl_t *);
+void afl_bitmap_cleanup(afl_t *);
 void afl_snapshot_cleanup(afl_t *);
 void afl_init(afl_t *);
 void afl_init_conf(afl_t *);
+void afl_init_mem_bitmap(afl_t *);
 void afl_init_snapshot(afl_t *);
 void afl_user_timeout_cb(void*);
 void afl_forkserver(afl_t *);

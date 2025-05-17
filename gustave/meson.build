@@ -5,6 +5,7 @@ gustave_ss.add([files(
   'inject.c',
   'child.c',
   'snapshot.c',
+  'mem.c',
   'conf.c'
 ), declare_dependency(link_args: '-Wl,-lrt')])
 
