@@ -2,7 +2,8 @@
 #define AFL_CONFIG_H
 
 #define AFL_ACTIVATED
-#define SHARED_SNAPSHOT
-#define MEMORY_ACCESS_ORACLE
+//#define SHARED_SNAPSHOT
+#define UFFD_SNAPSHOT
+//#define MEMORY_ACCESS_ORACLE
 
 #endif
