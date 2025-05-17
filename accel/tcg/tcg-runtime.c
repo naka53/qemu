@@ -31,6 +31,10 @@
 #include "exec/log.h"
 #include "tcg/tcg.h"
 
+#include "afl/config.h"
+#include "afl/common.h"
+#include "afl/instrumentation.h"
+
 #define HELPER_H  "accel/tcg/tcg-runtime.h"
 #include "exec/helper-info.c.inc"
 #undef  HELPER_H
@@ -151,4 +155,20 @@ uint64_t HELPER(ctpop_i64)(uint64_t arg)
 void HELPER(exit_atomic)(CPUArchState *env)
 {
     cpu_loop_exit_atomic(env_cpu(env), GETPC());
+}
+
+void HELPER(afl_forkserver_routine)(void) {
+    afl_forkserver(__global_afl);
+}
+
+void HELPER(afl_persistent_routine)(void) {
+    afl_persistent(__global_afl);
+}
+
+void HELPER(afl_persistent_return_routine)(void) {
+    afl_persistent_return(__global_afl);
+}
+
+void HELPER(afl_panic_return_routine)(void) {
+    afl_panic_return(__global_afl);
 }

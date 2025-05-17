@@ -66,6 +66,46 @@
 #include "tcg/perf.h"
 #include "tcg/insn-start-words.h"
 
+#include "afl/config.h"
+#include "afl/instrumentation.h"
+#include "afl/hash.h"
+#include "tcg/tcg-op-common.h"
+#include "tcg/tcg-temp-internal.h"
+
+static unsigned char dummy[MAP_SIZE];
+unsigned char *afl_area_ptr = dummy;
+__thread uint64_t afl_prev_loc;
+unsigned int afl_inst_rms = MAP_SIZE;
+
+void HELPER(afl_maybe_log)(uint64_t cur_loc) {
+    register uintptr_t afl_idx = cur_loc ^ afl_prev_loc;
+    INC_AFL_AREA(afl_idx);
+    afl_prev_loc = cur_loc >> 1;
+}
+
+#ifdef AFL_ACTIVATED
+/* Generates TCG code for AFL's tracing instrumentation. */
+static void afl_gen_trace(uint64_t cur_loc) 
+{
+    /* Looks like QEMU always maps to fixed locations, so ASLR is not a
+        concern. Phew. But instruction addresses may be aligned. Let's mangle
+        the value to get something quasi-uniform. */
+
+    cur_loc = afl_hash_ip(cur_loc) & (MAP_SIZE - 1);
+
+    /* Implement probabilistic instrumentation by looking at scrambled block
+        address. This keeps the instrumented locations stable across runs. */
+
+    if (cur_loc >= afl_inst_rms) return;
+
+    TCGv_i64 cur_loc_v = tcg_constant_i64(cur_loc);
+
+    gen_helper_afl_maybe_log(cur_loc_v);
+    
+    tcg_temp_free_i64(cur_loc_v);
+}
+#endif
+
 TBContext tb_ctx;
 
 /*
@@ -275,6 +315,9 @@ static int setjmp_gen_code(CPUArchState *env, TranslationBlock *tb,
     tcg_func_start(tcg_ctx);
 
     tcg_ctx->cpu = env_cpu(env);
+#ifdef AFL_ACTIVATED
+    afl_gen_trace(pc);
+#endif
     gen_intermediate_code(env_cpu(env), tb, max_insns, pc, host_pc);
     assert(tb->size != 0);
     tcg_ctx->cpu = NULL;

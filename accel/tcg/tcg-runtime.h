@@ -323,3 +323,9 @@ DEF_HELPER_FLAGS_4(gvec_leus32, TCG_CALL_NO_RWG, void, ptr, ptr, i64, i32)
 DEF_HELPER_FLAGS_4(gvec_leus64, TCG_CALL_NO_RWG, void, ptr, ptr, i64, i32)
 
 DEF_HELPER_FLAGS_5(gvec_bitsel, TCG_CALL_NO_RWG, void, ptr, ptr, ptr, ptr, i32)
+
+DEF_HELPER_FLAGS_0(afl_forkserver_routine, TCG_CALL_NO_RWG, void)
+DEF_HELPER_0(afl_persistent_routine, void)
+DEF_HELPER_FLAGS_0(afl_persistent_return_routine, TCG_CALL_NO_RWG, void)
+DEF_HELPER_FLAGS_0(afl_panic_return_routine, TCG_CALL_NO_RWG, void)
+DEF_HELPER_FLAGS_1(afl_maybe_log, TCG_CALL_NO_RWG, void, i64)

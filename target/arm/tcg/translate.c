@@ -28,6 +28,11 @@
 #include "cpregs.h"
 #include "exec/helper-proto.h"
 
+#include "afl/config.h"
+#include "afl/common.h"
+#include "tcg/tcg-op-common.h"
+#include "tcg/tcg-temp-internal.h"
+
 #define HELPER_H "helper.h"
 #include "exec/helper-info.c.inc"
 #undef  HELPER_H
@@ -7770,6 +7775,27 @@ static void arm_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     }
 
     dc->pc_curr = pc;
+
+#ifdef AFL_ACTIVATED
+    if (pc == __global_afl->config.tgt.forkserver) {
+        gen_helper_afl_forkserver_routine();
+    }
+    else if (pc == __global_afl->config.tgt.persistent) {
+        gen_update_pc(dc, 0);
+        gen_helper_afl_persistent_routine();
+    }
+    else if (pc == __global_afl->config.tgt.persistent_return) {
+        gen_helper_afl_persistent_return_routine();
+        gen_update_pc(dc, (__global_afl->config.tgt.persistent & ~1) - dc->pc_curr);
+        tcg_gen_lookup_and_goto_ptr();
+    }
+    else if (pc == __global_afl->config.tgt.panic) {
+        gen_helper_afl_panic_return_routine();
+        gen_update_pc(dc, (__global_afl->config.tgt.persistent & ~1) - dc->pc_curr);
+        tcg_gen_lookup_and_goto_ptr();
+    }
+#endif
+
     insn = arm_ldl_code(env, &dc->base, pc, dc->sctlr_b);
     dc->insn = insn;
     dc->base.pc_next = pc + 4;
@@ -7847,6 +7873,27 @@ static void thumb_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     }
 
     dc->pc_curr = pc;
+
+#ifdef AFL_ACTIVATED
+    if (pc == (__global_afl->config.tgt.forkserver & ~1)) {
+        gen_helper_afl_forkserver_routine();
+    }
+    else if (pc == (__global_afl->config.tgt.persistent & ~1)) {
+        gen_update_pc(dc, 0);
+        gen_helper_afl_persistent_routine();
+    }
+    else if (pc == (__global_afl->config.tgt.persistent_return & ~1)) {
+        gen_helper_afl_persistent_return_routine();
+        gen_update_pc(dc, (__global_afl->config.tgt.persistent & ~1) - dc->pc_curr);
+        tcg_gen_lookup_and_goto_ptr();
+    }
+    else if (pc == (__global_afl->config.tgt.panic & ~1)) {
+        gen_helper_afl_panic_return_routine();
+        gen_update_pc(dc, (__global_afl->config.tgt.persistent & ~1) - dc->pc_curr);
+        tcg_gen_lookup_and_goto_ptr();
+    }
+#endif
+
     insn = arm_lduw_code(env, &dc->base, pc, dc->sctlr_b);
     is_16bit = thumb_insn_is_16bit(dc, dc->base.pc_next, insn);
     pc += 2;
