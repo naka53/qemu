@@ -160,11 +160,14 @@ void afl_load_ram(afl_t *afl)
         }
     }
 
+    /* Optional, reset bitmap and protection bit */
+    if (!UFFD_SNAPSHOT_SNOWBALL) {
     memset(bitmap, 0, size_bitmap * sizeof(uint64_t));
 
     if (uffd_change_protection(uffd_fd, sram_mem, sram_size, true, false)) {
         fprintf(stderr, "failed to change protection mode set\n");
         exit(EXIT_FAILURE);
+        }
     }
 #else
     munmap(sram_mem, sram_size);

@@ -4,6 +4,9 @@
 #define AFL_ACTIVATED
 //#define SHARED_SNAPSHOT
 #define UFFD_SNAPSHOT
+#ifdef UFFD_SNAPSHOT
+#define UFFD_SNAPSHOT_SNOWBALL    1
+#endif
 //#define MEMORY_ACCESS_ORACLE
 
 #endif
