@@ -5,6 +5,8 @@
 #include "io/channel-file.h"
 #include "migration/qemu-file.h"
 #include "migration/savevm.h"
+#include "sysemu/runstate.h"
+#include "migration/global_state.h"
 #include "qemu/userfaultfd.h"
 
 #define PAGE_SIZE   4096
@@ -162,16 +164,23 @@ void afl_load_ram(afl_t *afl)
 
     /* Optional, reset bitmap and protection bit */
     if (!UFFD_SNAPSHOT_SNOWBALL) {
-    memset(bitmap, 0, size_bitmap * sizeof(uint64_t));
+        memset(bitmap, 0, size_bitmap * sizeof(uint64_t));
 
-    if (uffd_change_protection(uffd_fd, sram_mem, sram_size, true, false)) {
-        fprintf(stderr, "failed to change protection mode set\n");
-        exit(EXIT_FAILURE);
+        if (uffd_change_protection(uffd_fd, sram_mem, sram_size, true, false)) {
+            fprintf(stderr, "failed to change protection mode set\n");
+            exit(EXIT_FAILURE);
         }
     }
 #else
-    munmap(sram_mem, sram_size);
-    mmap(sram_mem, sram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FIXED, temp_fd_ram, 0);  
+    if (munmap(sram_mem, sram_size) == -1) {
+        fprintf(stderr, "failed to munmap the ram snapshot\n");
+        exit(EXIT_FAILURE);
+    }
+   if (mmap(sram_mem, sram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_FIXED, temp_fd_ram, 0) == (void *)-1) {  
+        fprintf(stderr, "failed to mmap the ram snapshot\n");
+        exit(EXIT_FAILURE);
+    }
+
 #endif
 }
 
@@ -189,7 +198,12 @@ void afl_save_reg(afl_t *afl)
     ioc = QIO_CHANNEL(qio_channel_file_new_fd(fd));
     f = qemu_file_new_output(ioc);
     object_unref(OBJECT(ioc));
+
+    global_state_store();
+    vm_stop(RUN_STATE_SAVE_VM);
+
     qemu_save_device_state(f);
+
     qemu_fclose(f);
 }
 
@@ -200,10 +214,14 @@ void afl_load_reg(afl_t *afl)
     QEMUFile *f;
 
     fd = dup(temp_fd_reg);
-    lseek(fd, 0, SEEK_SET);
+    lseek(fd, 8, SEEK_SET);
     ioc = QIO_CHANNEL(qio_channel_file_new_fd(fd));
     f = qemu_file_new_input(ioc);
     object_unref(OBJECT(ioc));
+
+    qemu_system_reset(SHUTDOWN_CAUSE_NONE);
+
     qemu_load_device_state(f);
+    
     qemu_fclose(f);
 }

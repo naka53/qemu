@@ -122,10 +122,10 @@ void afl_persistent(afl_t *afl)
     
         snapshot_saved = true;
         fuzzing_started = true;
-    } else {
-        afl_load_reg(afl);
-        afl_load_ram(afl);
     }
+        
+    afl_load_reg(afl);
+    afl_load_ram(afl);
 
     afl_area_ptr[0] = 1;
     afl_prev_loc = 0;
@@ -162,6 +162,8 @@ void afl_persistent(afl_t *afl)
      * return FAULT_NONE
      */
     afl_setup_timer(afl->user_timer, afl->config.qemu.timeout);
+
+    vm_start();
 }
 
 void afl_forward_status(afl_t *afl) {
