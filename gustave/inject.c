@@ -7,6 +7,9 @@ size_t afl_inject_test_case(afl_t *afl)
     uint32_t  args_len = *afl->shared_buf_len / sizeof(uint32_t);
     int i = 0;
 
+    if (i == 0 && args[i] == 19)
+        return 0;
+
     while (i < args_len && i < 7) {      
         env->regs[i] = args[i];
         i++;

@@ -21,8 +21,7 @@
 void afl_user_timeout_cb(void *opaque)
 {
     afl_t *afl = (afl_t*)opaque;
-
-    timer_del(afl->user_timer);
+    fprintf(stdout, "Timeout, force to reload\n");
 
     afl->status = sts_kill();
     afl_forward_status(afl);
@@ -123,7 +122,7 @@ void afl_persistent(afl_t *afl)
         snapshot_saved = true;
         fuzzing_started = true;
     }
-        
+
     afl_load_reg(afl);
     afl_load_ram(afl);
 
@@ -191,7 +190,7 @@ static void async_restore_vm(CPUState *cs, run_on_cpu_data data)
     afl_t *afl = (afl_t *)data.host_ptr;
     ARMCPU *cpu = ARM_CPU(cs);
     CPUARMState *env = &cpu->env;
-
+    printf("Async handler\n");
     env->regs[15] = afl->config.tgt.persistent & ~1;
     env->thumb = afl->config.tgt.persistent & 1;
 
